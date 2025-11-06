@@ -1323,7 +1323,11 @@ TRADING_PAIRS = [
     'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'XRPUSDT', 'ADAUSDT',
     'DOGEUSDT', 'SOLUSDT', 'DOTUSDT', 'MATICUSDT', 'LTCUSDT',
     'AVAXUSDT', 'LINKUSDT', 'ATOMUSDT', 'UNIUSDT', 'XLMUSDT',
-    'ALGOUSDT', 'VETUSDT', 'FILUSDT', 'TRXUSDT', 'ETCUSDT'
+    'ALGOUSDT', 'VETUSDT', 'FILUSDT', 'TRXUSDT', 'ETCUSDT',
+    'SHIBUSDT', 'NEARUSDT', 'APTUSDT', 'ARBUSDT', 'OPUSDT',
+    'INJUSDT', 'SUIUSDT', 'PEPEUSDT', 'WIFUSDT', 'BONKUSDT',
+    'TAOUSDT', 'RENDERUSDT', 'STXUSDT', 'WLDUSDT', 'ICPUSDT',
+    'AAVEUSDT', 'MKRUSDT', 'JUPUSDT', 'TIAUSDT', 'PYTHUSDT'
 ]
 
 # Price simulation pairs (for fallback when Binance API unavailable)
@@ -1349,8 +1353,8 @@ def pick_random_pair() -> str:
 
 # Trading control
 TRADING_ENABLED = True
-TRADING_FREQ_MINUTES = 45  # Default: 45 minutes between trades
-TRADES_PER_DAY = 32  # Default: 32 trades per day (every 45 minutes)
+TRADING_FREQ_MINUTES = 96  # Default: 96 minutes between trades
+TRADES_PER_DAY = 15  # Default: 15 trades per day (every 96 minutes)
 MINUTES_PER_DAY = 24 * 60  # 1440 minutes in a day
 TRADING_JOB_ID = 'trading_job_scheduled'
 _trading_job = None
