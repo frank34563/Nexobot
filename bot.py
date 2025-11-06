@@ -1,9 +1,10 @@
 # Full bot.py — Latest trading features implementation with:
 # - httpx-based Binance price fetcher with TTL cache and simulated fallback price walk
 # - DB models: UserTradeConfig (per-user config), DailySummary (daily records), Config (key/value store)
-# - Admin commands: /set_trades_per_day, /set_daily_range, /set_trade_range, /set_user_trade, /trading_status, /trading_summary
+# - Admin commands: /set_trades_per_day, /set_daily_range, /set_trade_range, /set_user_trade, /set_trading_hours, /trading_hours_status, /trading_status, /trading_summary
 # - Enforced ranges: daily 1.25%-1.5%, per-trade 0.05%-0.25% with validation
 # - Trading engine: uses per-user config or global config, fetches live prices with cache, updates balances
+# - Trading hours: configurable NY timezone window (default 5 AM - 6 PM)
 # - Daily summary job at 23:59 UTC: persists DailySummary, sends formatted summary to users
 # - Fixed-point decimal formatting (Decimal + format_price helpers)
 # - CallbackQueryHandler ordering: admin/history callbacks before generic menu handler
@@ -1353,11 +1354,16 @@ def pick_random_pair() -> str:
 
 # Trading control
 TRADING_ENABLED = True
-TRADING_FREQ_MINUTES = 96  # Default: 96 minutes between trades
-TRADES_PER_DAY = 15  # Default: 15 trades per day (every 96 minutes)
+TRADING_FREQ_MINUTES = 52  # Default: 52 minutes between trades
+TRADES_PER_DAY = 15  # Default: 15 trades per day (every 52 minutes)
 MINUTES_PER_DAY = 24 * 60  # 1440 minutes in a day
 TRADING_JOB_ID = 'trading_job_scheduled'
 _trading_job = None
+
+# Trading hours configuration (New York timezone)
+# Default: 5 AM - 6 PM Eastern Time (configurable via admin commands)
+TRADING_START_HOUR = 5  # 5 AM ET
+TRADING_END_HOUR = 18   # 6 PM ET
 
 # -----------------------
 # Trading job: fetch Binance prices with cache, use per-user config, update balances
@@ -1372,8 +1378,22 @@ async def trading_job():
         logger.debug("trading_job: Trading is disabled (TRADING_ENABLED=%s, DB=%s), skipping run", TRADING_ENABLED, trading_enabled_db)
         return
     
+    # Check trading hours (New York timezone: UTC-5 EST or UTC-4 EDT)
+    # Using UTC-5 as standard offset for Eastern Time
     now = datetime.utcnow()
-    logger.info("trading_job: starting run at %s", now.isoformat())
+    ny_hour = (now.hour - 5) % 24  # Convert UTC to Eastern Time (approximate)
+    
+    async with async_session() as session:
+        # Get configured trading hours from database
+        trading_start = int(await get_config(session, 'trading_start_hour', str(TRADING_START_HOUR)))
+        trading_end = int(await get_config(session, 'trading_end_hour', str(TRADING_END_HOUR)))
+        
+        if not (trading_start <= ny_hour < trading_end):
+            logger.debug("trading_job: Outside trading hours (NY time: %02d:00, window: %02d:00-%02d:00)", 
+                        ny_hour, trading_start, trading_end)
+            return
+    
+    logger.info("trading_job: starting run at %s (NY hour: %02d:00)", now.isoformat(), ny_hour)
     async with async_session() as session:
         # Get configured ranges from Config
         trade_min = float(await get_config(session, 'trade_range_min', '0.05'))
@@ -2945,6 +2965,77 @@ async def cmd_set_trade_range(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
     await post_admin_log(context.bot, f"Admin set trade range to {min_percent}% - {max_percent}%")
 
+async def cmd_set_trading_hours(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin command: /set_trading_hours <start_hour> <end_hour> - Set trading hours in NY timezone (0-23)"""
+    user_id = update.effective_user.id
+    if not _is_admin(user_id):
+        await update.effective_message.reply_text("Forbidden: admin only.")
+        return
+    
+    if not context.args or len(context.args) != 2:
+        await update.effective_message.reply_text(
+            "Usage: /set_trading_hours <start_hour> <end_hour>\n"
+            "Example: /set_trading_hours 5 18\n"
+            "(Sets trading window to 5 AM - 6 PM NY time)\n"
+            "Hours are in 24-hour format (0-23)"
+        )
+        return
+    
+    try:
+        start_hour = int(context.args[0])
+        end_hour = int(context.args[1])
+    except ValueError:
+        await update.effective_message.reply_text("❌ Invalid hours. Both start and end must be integers (0-23)")
+        return
+    
+    if not (0 <= start_hour <= 23) or not (0 <= end_hour <= 23):
+        await update.effective_message.reply_text("❌ Hours must be between 0 and 23")
+        return
+    
+    if start_hour >= end_hour:
+        await update.effective_message.reply_text("❌ Start hour must be less than end hour")
+        return
+    
+    # Store in Config
+    async with async_session() as session:
+        await set_config(session, 'trading_start_hour', str(start_hour))
+        await set_config(session, 'trading_end_hour', str(end_hour))
+    
+    duration = end_hour - start_hour
+    await update.effective_message.reply_text(
+        f"✅ Trading hours set to {start_hour:02d}:00 - {end_hour:02d}:00 NY time\n"
+        f"({duration} hour window)"
+    )
+    await post_admin_log(context.bot, f"Admin set trading hours to {start_hour:02d}:00 - {end_hour:02d}:00 NY time")
+
+async def cmd_trading_hours_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin command: /trading_hours_status - Show current trading hours configuration"""
+    user_id = update.effective_user.id
+    if not _is_admin(user_id):
+        await update.effective_message.reply_text("Forbidden: admin only.")
+        return
+    
+    async with async_session() as session:
+        start_hour = int(await get_config(session, 'trading_start_hour', str(TRADING_START_HOUR)))
+        end_hour = int(await get_config(session, 'trading_end_hour', str(TRADING_END_HOUR)))
+    
+    now = datetime.utcnow()
+    ny_hour = (now.hour - 5) % 24
+    duration = end_hour - start_hour
+    is_trading_time = start_hour <= ny_hour < end_hour
+    
+    status = "🟢 ACTIVE" if is_trading_time else "🔴 INACTIVE"
+    
+    await update.effective_message.reply_text(
+        f"⏰ <b>Trading Hours Configuration</b>\n\n"
+        f"Window: {start_hour:02d}:00 - {end_hour:02d}:00 NY time\n"
+        f"Duration: {duration} hours\n"
+        f"Current NY time: {ny_hour:02d}:{now.minute:02d}\n"
+        f"Status: {status}\n\n"
+        f"Use /set_trading_hours to change",
+        parse_mode='HTML'
+    )
+
 # Notification/Broadcast commands
 async def cmd_set_broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin command: /set_broadcast_message <message> - Set broadcast message for all users"""
@@ -3516,6 +3607,8 @@ async def cmd_admin_cmds(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/set_trade_percent <percent> - Set trade percent\n"
         "/set_daily_range <min> <max> - Set daily percent range (1.25-1.5%)\n"
         "/set_trade_range <min> <max> - Set trade percent range (0.05-0.25%)\n"
+        "/set_trading_hours <start> <end> - Set trading hours (NY time, 0-23)\n"
+        "/trading_hours_status - Show current trading hours\n"
         "/set_user_trade <user_id> <pair> <percent> - Set user config\n"
         "/trading_status - Show trading config\n"
         "/trading_summary [date] - View daily summary\n\n"
@@ -4131,6 +4224,8 @@ def main():
     application.add_handler(CommandHandler("set_daily_range", cmd_set_daily_range))
     application.add_handler(CommandHandler("set_trade_range", cmd_set_trade_range))
     application.add_handler(CommandHandler("set_user_trade", cmd_set_user_trade))
+    application.add_handler(CommandHandler("set_trading_hours", cmd_set_trading_hours))
+    application.add_handler(CommandHandler("trading_hours_status", cmd_trading_hours_status))
     application.add_handler(CommandHandler("trading_status", cmd_trading_status))
     application.add_handler(CommandHandler("trading_summary", cmd_trading_summary))
     
