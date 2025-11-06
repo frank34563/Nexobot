@@ -1392,9 +1392,6 @@ async def trading_job():
                 bal = float(user.balance or 0.0)
                 if bal <= 1.0:
                     continue
-                # 30% chance to skip (70% chance to trade per job run)
-                if random.random() < 0.3:
-                    continue
                 
                 # Calculate daily profit percentage so far
                 daily_profit_so_far = float(user.daily_profit or 0.0)
