@@ -1,4 +1,4 @@
-# AiCrypto Bot – Production Ready
+# Nexo Trading Bot – Production Ready
 
 - Python 3.13 + asyncpg + SQLAlchemy
 - Postgres (Railway) or SQLite (local)
