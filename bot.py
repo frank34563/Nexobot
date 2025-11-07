@@ -556,7 +556,7 @@ TRANSLATIONS = {
             "Nexo Trading Bot is more than just a bot; it's your personal, intelligent trading partner designed for public use, making crypto investment accessible and profitable for everyone."
         ),
         # Invest flow translations
-        "invest_enter_amount": "📈 Enter the amount you want to invest (minimum 10 USDT, e.g., 100.50). Send /cancel to abort.",
+        "invest_enter_amount": "💰 <b>Deposit Funds</b>\n\nPlease enter the amount you wish to deposit:\n\n• Minimum: <b>10 USDT</b>\n• Example: 100.50\n\nType /cancel anytime to abort.",
         "invest_invalid_amount": "Invalid amount. Send a positive number like 100 or 50.50, or /cancel.",
         "invest_minimum_amount": "❌ Minimum deposit is 10 USDT. Please enter at least 10 USDT or /cancel.",
         "invest_send_proof": "📥 Deposit {amount:.2f}$\nSend to wallet:\nWallet: <code>{wallet}</code>\nNetwork: <b>{network}</b>\n\nAfter sending, upload a screenshot OR send the transaction hash (txid).",
@@ -568,7 +568,7 @@ TRANSLATIONS = {
         "invest_missing_data": "Missing data. Restart invest flow.",
         "invest_request_success": "🧾 Deposit Request Successful\nTransaction ID: D-{ref}\nAmount: {amount:.2f} USDT ({network})\nWallet: {wallet}\nNetwork: {network}\nStatus: Pending Approval\nDate: {date}\n\nOnce confirmed, your balance will be updated automatically.",
         # Withdraw flow translations
-        "withdraw_enter_amount": "💸 Enter the amount you want to withdraw (numbers only). Send /cancel to abort.",
+        "withdraw_enter_amount": "💵 <b>Withdraw Funds</b>\n\nPlease enter the amount you wish to withdraw:\n\n• Example: 50.25\n\nType /cancel anytime to abort.",
         "withdraw_invalid_amount": "Invalid amount. Send a positive number like 50 or 25.75, or /cancel.",
         "withdraw_insufficient": "Insufficient balance. Available: {balance:.2f}$. Enter smaller amount or /cancel.",
         "withdraw_saved_wallet": "Your saved wallet:\n<code>{wallet}</code>\nNetwork: <b>{network}</b>\n\nOr send a new wallet and optional network.",
@@ -666,7 +666,7 @@ TRANSLATIONS = {
             "Nexo Trading Bot est plus qu'un simple bot; c'est votre partenaire de trading intelligent personnel conçu pour un usage public, rendant l'investissement crypto accessible et rentable pour tous."
         ),
         # Invest flow translations
-        "invest_enter_amount": "📈 Entrez le montant que vous souhaitez investir (minimum 10 USDT, ex: 100.50). Envoyez /cancel pour annuler.",
+        "invest_enter_amount": "💰 <b>Dépôt de Fonds</b>\n\nVeuillez entrer le montant que vous souhaitez déposer :\n\n• Minimum : <b>10 USDT</b>\n• Exemple : 100.50\n\nTapez /cancel à tout moment pour annuler.",
         "invest_invalid_amount": "Montant invalide. Envoyez un nombre positif comme 100 ou 50.50, ou /cancel.",
         "invest_minimum_amount": "❌ Le dépôt minimum est de 10 USDT. Veuillez entrer au moins 10 USDT ou /cancel.",
         "invest_send_proof": "📥 Dépôt de {amount:.2f}$\nEnvoyez à:\nPortefeuille: <code>{wallet}</code>\nRéseau: <b>{network}</b>\n\nAprès l'envoi, téléchargez une capture d'écran OU envoyez le hash de transaction (txid).",
@@ -678,7 +678,7 @@ TRANSLATIONS = {
         "invest_missing_data": "Données manquantes. Redémarrez le flux d'investissement.",
         "invest_request_success": "🧾 Demande de Dépôt Réussie\nID de transaction: D-{ref}\nMontant: {amount:.2f} USDT ({network})\nPortefeuille: {wallet}\nRéseau: {network}\nStatut: En attente d'approbation\nDate: {date}\n\nUne fois confirmé, votre solde sera mis à jour automatiquement.",
         # Withdraw flow translations
-        "withdraw_enter_amount": "💸 Entrez le montant que vous souhaitez retirer (chiffres uniquement). Envoyez /cancel pour annuler.",
+        "withdraw_enter_amount": "💵 <b>Retrait de Fonds</b>\n\nVeuillez entrer le montant que vous souhaitez retirer :\n\n• Exemple : 50.25\n\nTapez /cancel à tout moment pour annuler.",
         "withdraw_invalid_amount": "Montant invalide. Envoyez un nombre positif comme 50 ou 25.75, ou /cancel.",
         "withdraw_insufficient": "Solde insuffisant. Disponible: {balance:.2f}$. Entrez un montant plus petit ou /cancel.",
         "withdraw_saved_wallet": "Votre portefeuille enregistré:\n<code>{wallet}</code>\nRéseau: <b>{network}</b>\n\nOu envoyez un nouveau portefeuille et réseau facultatif.",
@@ -776,7 +776,7 @@ TRANSLATIONS = {
             "Nexo Trading Bot es más que un simple bot; es tu socio de trading inteligente personal diseñado para uso público, haciendo la inversión cripto accesible y rentable para todos."
         ),
         # Invest flow translations
-        "invest_enter_amount": "📈 Ingresa el monto que deseas invertir (mínimo 10 USDT, ej: 100.50). Envía /cancel para cancelar.",
+        "invest_enter_amount": "💰 <b>Depósito de Fondos</b>\n\nPor favor ingresa el monto que deseas depositar:\n\n• Mínimo: <b>10 USDT</b>\n• Ejemplo: 100.50\n\nEscribe /cancel en cualquier momento para cancelar.",
         "invest_invalid_amount": "Monto inválido. Envía un número positivo como 100 o 50.50, o /cancel.",
         "invest_minimum_amount": "❌ El depósito mínimo es 10 USDT. Por favor ingresa al menos 10 USDT o /cancel.",
         "invest_send_proof": "📥 Depósito de {amount:.2f}$\nEnviar a:\nBilletera: <code>{wallet}</code>\nRed: <b>{network}</b>\n\nDespués de enviar, sube una captura de pantalla O envía el hash de transacción (txid).",
@@ -788,7 +788,7 @@ TRANSLATIONS = {
         "invest_missing_data": "Datos faltantes. Reinicia el flujo de inversión.",
         "invest_request_success": "🧾 Solicitud de Depósito Exitosa\nID de transacción: D-{ref}\nMonto: {amount:.2f} USDT ({network})\nBilletera: {wallet}\nRed: {network}\nEstado: Pendiente de aprobación\nFecha: {date}\n\nUna vez confirmado, tu saldo se actualizará automáticamente.",
         # Withdraw flow translations
-        "withdraw_enter_amount": "💸 Ingresa el monto que deseas retirar (solo números). Envía /cancel para cancelar.",
+        "withdraw_enter_amount": "💵 <b>Retiro de Fondos</b>\n\nPor favor ingresa el monto que deseas retirar:\n\n• Ejemplo: 50.25\n\nEscribe /cancel en cualquier momento para cancelar.",
         "withdraw_invalid_amount": "Monto inválido. Envía un número positivo como 50 o 25.75, o /cancel.",
         "withdraw_insufficient": "Saldo insuficiente. Disponible: {balance:.2f}$. Ingresa un monto menor o /cancel.",
         "withdraw_saved_wallet": "Tu billetera guardada:\n<code>{wallet}</code>\nRed: <b>{network}</b>\n\nO envía una nueva billetera y red opcional.",
@@ -886,7 +886,7 @@ TRANSLATIONS = {
             "Nexo Trading Bot هو أكثر من مجرد بوت؛ إنه شريك التداول الذكي الشخصي المصمم للاستخدام العام، مما يجعل استثمار العملات المشفرة في متناول الجميع ومربحاً للجميع."
         ),
         # Invest flow translations
-        "invest_enter_amount": "📈 أدخل المبلغ الذي تريد استثماره (الحد الأدنى 10 USDT، مثال: 100.50). أرسل /cancel للإلغاء.",
+        "invest_enter_amount": "💰 <b>إيداع الأموال</b>\n\nالرجاء إدخال المبلغ الذي ترغب في إيداعه:\n\n• الحد الأدنى: <b>10 USDT</b>\n• مثال: 100.50\n\nاكتب /cancel في أي وقت للإلغاء.",
         "invest_invalid_amount": "مبلغ غير صحيح. أرسل رقماً موجباً مثل 100 أو 50.50، أو /cancel.",
         "invest_minimum_amount": "❌ الحد الأدنى للإيداع هو 10 USDT. الرجاء إدخال 10 USDT على الأقل أو /cancel.",
         "invest_send_proof": "📥 إيداع {amount:.2f}$\nأرسل إلى:\nالمحفظة: <code>{wallet}</code>\nالشبكة: <b>{network}</b>\n\nبعد الإرسال، قم بتحميل لقطة شاشة أو أرسل معرف المعاملة (txid).",
@@ -898,7 +898,7 @@ TRANSLATIONS = {
         "invest_missing_data": "بيانات مفقودة. أعد بدء عملية الاستثمار.",
         "invest_request_success": "🧾 طلب الإيداع ناجح\nمعرف المعاملة: D-{ref}\nالمبلغ: {amount:.2f} USDT ({network})\nالمحفظة: {wallet}\nالشبكة: {network}\nالحالة: في انتظار الموافقة\nالتاريخ: {date}\n\nبمجرد التأكيد، سيتم تحديث رصيدك تلقائياً.",
         # Withdraw flow translations
-        "withdraw_enter_amount": "💸 أدخل المبلغ الذي تريد سحبه (أرقام فقط). أرسل /cancel للإلغاء.",
+        "withdraw_enter_amount": "💵 <b>سحب الأموال</b>\n\nالرجاء إدخال المبلغ الذي ترغب في سحبه:\n\n• مثال: 50.25\n\nاكتب /cancel في أي وقت للإلغاء.",
         "withdraw_invalid_amount": "مبلغ غير صحيح. أرسل رقماً موجباً مثل 50 أو 25.75، أو /cancel.",
         "withdraw_insufficient": "رصيد غير كافٍ. المتاح: {balance:.2f}$. أدخل مبلغاً أصغر أو /cancel.",
         "withdraw_saved_wallet": "محفظتك المحفوظة:\n<code>{wallet}</code>\nالشبكة: <b>{network}</b>\n\nأو أرسل محفظة جديدة وشبكة اختيارية.",
@@ -997,7 +997,7 @@ TRANSLATIONS = {
             "Nexo Trading Bot不仅仅是一个机器人；它是您的个人智能交易伙伴，专为公众使用而设计，使加密货币投资对每个人都可访问且有利可图。"
         ),
         # Invest flow translations
-        "invest_enter_amount": "📈 输入您想要投资的金额（最低10 USDT，例如100.50）。发送/cancel取消。",
+        "invest_enter_amount": "💰 <b>存款</b>\n\n请输入您想要存入的金额：\n\n• 最低金额：<b>10 USDT</b>\n• 示例：100.50\n\n随时输入 /cancel 取消操作。",
         "invest_invalid_amount": "金额无效。发送一个正数，如100或50.50，或/cancel。",
         "invest_minimum_amount": "❌ 最低存款为10 USDT。请至少输入10 USDT或/cancel。",
         "invest_send_proof": "📥 存款{amount:.2f}$\n发送到钱包：\n钱包：<code>{wallet}</code>\n网络：<b>{network}</b>\n\n发送后，上传截图或发送交易哈希（txid）。",
@@ -1009,7 +1009,7 @@ TRANSLATIONS = {
         "invest_missing_data": "数据缺失。重新启动投资流程。",
         "invest_request_success": "🧾 存款请求成功\n交易ID：D-{ref}\n金额：{amount:.2f} USDT（{network}）\n钱包：{wallet}\n网络：{network}\n状态：等待批准\n日期：{date}\n\n一旦确认，您的余额将自动更新。",
         # Withdraw flow translations
-        "withdraw_enter_amount": "💸 输入您想要提现的金额（仅数字）。发送/cancel取消。",
+        "withdraw_enter_amount": "💵 <b>提款</b>\n\n请输入您想要提取的金额：\n\n• 示例：50.25\n\n随时输入 /cancel 取消操作。",
         "withdraw_invalid_amount": "金额无效。发送一个正数，如50或25.75，或/cancel。",
         "withdraw_insufficient": "余额不足。可用：{balance:.2f}$。输入较小金额或/cancel。",
         "withdraw_saved_wallet": "您保存的钱包：\n<code>{wallet}</code>\n网络：<b>{network}</b>\n\n或发送新钱包和可选网络。",
