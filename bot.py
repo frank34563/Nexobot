@@ -4596,6 +4596,9 @@ def main():
     global application, _scheduler
     application = Application.builder().token(BOT_TOKEN).build()
 
+    # Message handler for broadcast media (must be before conversation handler)
+    application.add_handler(MessageHandler((filters.PHOTO | filters.VIDEO) & ~filters.COMMAND, handle_broadcast_media))
+
     conv_handler = ConversationHandler(
         entry_points=[
             CommandHandler('invest', invest_cmd_handler),
@@ -4694,9 +4697,6 @@ def main():
     application.add_handler(CallbackQueryHandler(finalize_broadcast_callback, pattern='^finalize_broadcast$'))
     application.add_handler(CallbackQueryHandler(cancel_broadcast_callback, pattern='^cancel_broadcast$'))
     application.add_handler(CallbackQueryHandler(add_more_media_callback, pattern='^add_more_media$'))
-    
-    # Message handler for broadcast media (must be before generic menu handler)
-    application.add_handler(MessageHandler((filters.PHOTO | filters.VIDEO) & ~filters.COMMAND, handle_broadcast_media))
     
     # Analytics and System commands
     application.add_handler(CommandHandler("admin_stats", cmd_admin_stats))
