@@ -601,7 +601,7 @@ TRANSLATIONS = {
         "wallet_saved": "Saved wallet:\n<code>{wallet}</code>\nNetwork: {network}",
         "wallet_use_button": "Use this wallet for next withdrawal",
         "wallet_not_saved": "No withdrawal wallet saved. Set it with /wallet <address> [network]",
-        "wallet_send_address": "Send your withdrawal wallet address and optional network (e.g., 0xabc... ERC20).",
+        "wallet_send_address": "<b>Change Payout Wallet</b>\n\nSend your withdrawal wallet address and optional network\n• Example: bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh BTC",
         # Help command
         "help_message": "Need assistance? Click below to chat with support:",
         "help_button": "💬 Open Support Chat",
@@ -712,7 +712,7 @@ TRANSLATIONS = {
         "wallet_saved": "Portefeuille enregistré:\n<code>{wallet}</code>\nRéseau: {network}",
         "wallet_use_button": "Utiliser ce portefeuille pour le prochain retrait",
         "wallet_not_saved": "Aucun portefeuille de retrait enregistré. Configurez-le avec /wallet <adresse> [réseau]",
-        "wallet_send_address": "Envoyez l'adresse de votre portefeuille de retrait et le réseau facultatif (ex: 0xabc... ERC20).",
+        "wallet_send_address": "<b>Changer le Portefeuille de Retrait</b>\n\nEnvoyez l'adresse de votre portefeuille de retrait et le réseau facultatif\n• Exemple: bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh BTC",
         # Help command
         "help_message": "Besoin d'aide? Cliquez ci-dessous pour discuter avec le support:",
         "help_button": "💬 Ouvrir le Chat de Support",
@@ -823,7 +823,7 @@ TRANSLATIONS = {
         "wallet_saved": "Billetera guardada:\n<code>{wallet}</code>\nRed: {network}",
         "wallet_use_button": "Usar esta billetera para el próximo retiro",
         "wallet_not_saved": "No hay billetera de retiro guardada. Configúrala con /wallet <dirección> [red]",
-        "wallet_send_address": "Envía la dirección de tu billetera de retiro y red opcional (ej: 0xabc... ERC20).",
+        "wallet_send_address": "<b>Cambiar Billetera de Retiro</b>\n\nEnvía la dirección de tu billetera de retiro y red opcional\n• Ejemplo: bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh BTC",
         # Help command
         "help_message": "¿Necesitas ayuda? Haz clic abajo para chatear con soporte:",
         "help_button": "💬 Abrir Chat de Soporte",
@@ -934,7 +934,7 @@ TRANSLATIONS = {
         "wallet_saved": "المحفظة المحفوظة:\n<code>{wallet}</code>\nالشبكة: {network}",
         "wallet_use_button": "استخدم هذه المحفظة للسحب التالي",
         "wallet_not_saved": "لا توجد محفظة سحب محفوظة. قم بتعيينها باستخدام /wallet <العنوان> [الشبكة]",
-        "wallet_send_address": "أرسل عنوان محفظة السحب والشبكة الاختيارية (مثال: 0xabc... ERC20).",
+        "wallet_send_address": "<b>تغيير محفظة السحب</b>\n\nأرسل عنوان محفظة السحب والشبكة الاختيارية\n• مثال: bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh BTC",
         # Help command
         "help_message": "تحتاج مساعدة؟ انقر أدناه للدردشة مع الدعم:",
         "help_button": "💬 فتح محادثة الدعم",
@@ -1046,7 +1046,7 @@ TRANSLATIONS = {
         "wallet_saved": "已保存的钱包：\n<code>{wallet}</code>\n网络：{network}",
         "wallet_use_button": "下次提现使用此钱包",
         "wallet_not_saved": "未保存提现钱包。使用/wallet <地址> [网络]设置。",
-        "wallet_send_address": "发送您的提现钱包地址和可选网络（例如，0xabc... ERC20）。",
+        "wallet_send_address": "<b>更改提现钱包</b>\n\n发送您的提现钱包地址和可选网络\n• 示例: bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh BTC",
         # Help command
         "help_message": "需要帮助？点击下面与支持聊天：",
         "help_button": "💬 打开支持聊天",
@@ -1750,7 +1750,6 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Exit/Return to main menu
     if data == "menu_exit":
-        await cancel_conv(update, context)
         async with async_session() as session:
             lang = await get_user_language(session, query.from_user.id, update=update)
         await send_main_menu(update, context, lang=lang)
@@ -4241,9 +4240,9 @@ async def settings_start_wallet(update: Update, context: ContextTypes.DEFAULT_TY
         lang = await get_user_language(session, user_id, update)
     if update.callback_query:
         await update.callback_query.answer()
-        await update.callback_query.message.reply_text(t(lang, "wallet_send_address"))
+        await update.callback_query.message.reply_text(t(lang, "wallet_send_address"), parse_mode="HTML")
     else:
-        await update.effective_message.reply_text(t(lang, "wallet_send_address"))
+        await update.effective_message.reply_text(t(lang, "wallet_send_address"), parse_mode="HTML")
     return WITHDRAW_WALLET
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
