@@ -4640,6 +4640,11 @@ def main():
     application.add_handler(CallbackQueryHandler(history_details_callback, pattern='^history_details_\\d+_\\d+_\\d+$'))
     application.add_handler(CallbackQueryHandler(history_back_callback, pattern='^history_back_\\d+_\\d+$'))
 
+    # Callback handlers for broadcast creation (must be before generic menu handler)
+    application.add_handler(CallbackQueryHandler(finalize_broadcast_callback, pattern='^finalize_broadcast$'))
+    application.add_handler(CallbackQueryHandler(cancel_broadcast_callback, pattern='^cancel_broadcast$'))
+    application.add_handler(CallbackQueryHandler(add_more_media_callback, pattern='^add_more_media$'))
+
     # generic menu handler should come after specific handlers
     application.add_handler(CallbackQueryHandler(menu_callback))
 
@@ -4692,11 +4697,6 @@ def main():
     # Media broadcast commands
     application.add_handler(CommandHandler("create_media_broadcast", cmd_create_media_broadcast))
     application.add_handler(CommandHandler("send_media_broadcast", cmd_send_media_broadcast))
-    
-    # Callback handlers for broadcast creation
-    application.add_handler(CallbackQueryHandler(finalize_broadcast_callback, pattern='^finalize_broadcast$'))
-    application.add_handler(CallbackQueryHandler(cancel_broadcast_callback, pattern='^cancel_broadcast$'))
-    application.add_handler(CallbackQueryHandler(add_more_media_callback, pattern='^add_more_media$'))
     
     # Analytics and System commands
     application.add_handler(CommandHandler("admin_stats", cmd_admin_stats))
