@@ -43,7 +43,7 @@ from telegram.ext import (
 )
 
 from sqlalchemy import (
-    Column, Integer, String, DateTime,
+    Column, Integer, String, DateTime, Boolean,
     BigInteger, select, Numeric, text, update as sa_update
 )
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
@@ -128,6 +128,9 @@ class User(Base):
     wallet_address = Column(String)
     wallet_network = Column(String)
     preferred_language = Column(String, nullable=True)
+    # Notification preferences
+    mute_trade_notifications = Column(Boolean, default=False)  # Mute individual trade alerts
+    mute_daily_summary = Column(Boolean, default=False)  # Mute daily summary reports
     joined_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -510,6 +513,13 @@ TRANSLATIONS = {
         "settings_language": "🌍 Language",
         "change_language": "Change Language",
         "settings_wallet": "💳 Set/Update Withdrawal Wallet",
+        "settings_notifications": "🔔 Notification Preferences",
+        "notifications_title": "🔔 Notification Preferences",
+        "notifications_trades": "Trade Alerts",
+        "notifications_summary": "Daily Summary",
+        "notifications_status_on": "✅ ON",
+        "notifications_status_off": "🔇 OFF",
+        "notifications_updated": "✅ Notification preferences updated!",
         "select_option": "Select an option:",
         "back_to_menu": "« Back to Menu",
         "lang_auto": "🔄 Auto (from Telegram)",
@@ -614,6 +624,13 @@ TRANSLATIONS = {
         "settings_language": "🌍 Langue",
         "change_language": "Changer la langue",
         "settings_wallet": "💳 Définir/Mettre à jour le portefeuille de retrait",
+        "settings_notifications": "🔔 Préférences de notification",
+        "notifications_title": "🔔 Préférences de notification",
+        "notifications_trades": "Alertes de trading",
+        "notifications_summary": "Résumé quotidien",
+        "notifications_status_on": "✅ ACTIVÉ",
+        "notifications_status_off": "🔇 DÉSACTIVÉ",
+        "notifications_updated": "✅ Préférences de notification mises à jour!",
         "select_option": "Sélectionnez une option:",
         "back_to_menu": "« Retour au menu",
         "lang_auto": "🔄 Auto (Telegram)",
@@ -717,6 +734,13 @@ TRANSLATIONS = {
         "settings_language": "🌍 Idioma",
         "change_language": "Cambiar idioma",
         "settings_wallet": "💳 Establecer/Actualizar billetera de retiro",
+        "settings_notifications": "🔔 Preferencias de notificación",
+        "notifications_title": "🔔 Preferencias de notificación",
+        "notifications_trades": "Alertas de trading",
+        "notifications_summary": "Resumen diario",
+        "notifications_status_on": "✅ ACTIVADO",
+        "notifications_status_off": "🔇 DESACTIVADO",
+        "notifications_updated": "✅ ¡Preferencias de notificación actualizadas!",
         "select_option": "Selecciona una opción:",
         "back_to_menu": "« Volver al menú",
         "lang_auto": "🔄 Auto (Telegram)",
@@ -820,6 +844,13 @@ TRANSLATIONS = {
         "settings_language": "🌍 اللغة",
         "change_language": "تغيير اللغة",
         "settings_wallet": "💳 تعيين/تحديث محفظة السحب",
+        "settings_notifications": "🔔 تفضيلات الإشعارات",
+        "notifications_title": "🔔 تفضيلات الإشعارات",
+        "notifications_trades": "تنبيهات التداول",
+        "notifications_summary": "الملخص اليومي",
+        "notifications_status_on": "✅ مفعّل",
+        "notifications_status_off": "🔇 معطل",
+        "notifications_updated": "✅ تم تحديث تفضيلات الإشعارات!",
         "select_option": "اختر خياراً:",
         "back_to_menu": "« العودة إلى القائمة",
         "lang_auto": "🔄 تلقائي (من تيليجرام)",
@@ -923,6 +954,13 @@ TRANSLATIONS = {
         "settings_language": "🌍 语言",
         "change_language": "更改语言",
         "settings_wallet": "💳 设置/更新提现钱包",
+        "settings_notifications": "🔔 通知偏好",
+        "notifications_title": "🔔 通知偏好",
+        "notifications_trades": "交易提醒",
+        "notifications_summary": "每日摘要",
+        "notifications_status_on": "✅ 开启",
+        "notifications_status_off": "🔇 关闭",
+        "notifications_updated": "✅ 通知偏好已更新!",
         "select_option": "选择一个选项：",
         "back_to_menu": "« 返回菜单",
         "lang_auto": "🔄 自动（从Telegram）",
@@ -1574,18 +1612,21 @@ async def trading_job():
                     f"💰{t['balance']}: {display_balance} USDT"
                 )
                 # Use application instance if available, otherwise skip notification
-                try:
-                    if application and application.bot:
-                        await application.bot.send_message(chat_id=user.id, text=trade_text)
-                    else:
-                        logger.warning("Application bot not available for trade notification to user %s", user.id)
-                except Exception as e:
-                    logger.warning("Unable to send trade alert to user %s: %s", user.id, str(e))
+                # Check if user has muted trade notifications
+                if not (user.mute_trade_notifications or False):
+                    try:
+                        if application and application.bot:
+                            await application.bot.send_message(chat_id=user.id, text=trade_text)
+                        else:
+                            logger.warning("Application bot not available for trade notification to user %s", user.id)
+                    except Exception as e:
+                        logger.warning("Unable to send trade alert to user %s: %s", user.id, str(e))
             except Exception:
                 logger.exception("trading_job failed for user %s", getattr(user, "id", "<unknown>"))
 
 # -----------------------
-# Daily summary job: runs at 23:59 UTC to summarize daily trading
+# Daily summary job: runs 40 minutes after last trade to summarize daily trading
+# Scheduled dynamically based on trading hours configuration
 # -----------------------
 async def daily_summary_job():
     """Send daily summary to users and persist records"""
@@ -1664,10 +1705,12 @@ async def daily_summary_job():
                     f"{t['total_balance']}: {balance:.2f} USDT"
                 )
                 
-                try:
-                    await application.bot.send_message(chat_id=user_id, text=summary_text)
-                except Exception as e:
-                    logger.debug(f"Unable to send daily summary to user {user_id}: {e}")
+                # Send summary to user (check if they have muted daily summaries)
+                if not (user.mute_daily_summary or False):
+                    try:
+                        await application.bot.send_message(chat_id=user_id, text=summary_text)
+                    except Exception as e:
+                        logger.debug(f"Unable to send daily summary to user {user_id}: {e}")
                 
                 # Reset daily_profit for next day
                 await update_user(session, user_id, daily_profit=0.0)
@@ -1775,6 +1818,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 lang = await get_user_language(session, query.from_user.id, update=update)
             kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton("🌍 " + t(lang,"change_language"), callback_data="settings_language")],
+                [InlineKeyboardButton(t(lang,"settings_notifications"), callback_data="settings_notifications")],
                 [InlineKeyboardButton(t(lang,"settings_wallet"), callback_data="settings_set_wallet")],
                 [InlineKeyboardButton(t(lang,"back_to_menu"), callback_data="menu_exit")]
             ])
@@ -3980,6 +4024,84 @@ async def language_callback_handler(update: Update, context: ContextTypes.DEFAUL
             parse_mode="HTML"
         )
 
+# Notification Settings Handlers
+async def settings_notifications_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show notification preferences menu"""
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    
+    async with async_session() as session:
+        lang = await get_user_language(session, user_id, update=update)
+        result = await session.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            user = User(id=user_id)
+            session.add(user)
+            await session.commit()
+            mute_trades = False
+            mute_summary = False
+        else:
+            mute_trades = user.mute_trade_notifications or False
+            mute_summary = user.mute_daily_summary or False
+    
+    # Build notification status text
+    trades_status = t(lang, "notifications_status_off") if mute_trades else t(lang, "notifications_status_on")
+    summary_status = t(lang, "notifications_status_off") if mute_summary else t(lang, "notifications_status_on")
+    
+    text = (
+        f"{t(lang, 'notifications_title')}\n\n"
+        f"📊 {t(lang, 'notifications_trades')}: {trades_status}\n"
+        f"📈 {t(lang, 'notifications_summary')}: {summary_status}\n\n"
+        f"{t(lang, 'select_option')}"
+    )
+    
+    # Build keyboard with toggle buttons
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton(
+            f"{'🔇' if mute_trades else '🔔'} {t(lang, 'notifications_trades')}",
+            callback_data="toggle_trade_notifications"
+        )],
+        [InlineKeyboardButton(
+            f"{'🔇' if mute_summary else '🔔'} {t(lang, 'notifications_summary')}",
+            callback_data="toggle_daily_summary"
+        )],
+        [InlineKeyboardButton(t(lang, "back_to_menu"), callback_data="menu_settings")]
+    ])
+    
+    try:
+        await query.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        await query.message.reply_text(text, reply_markup=kb, parse_mode="HTML")
+
+async def toggle_notification_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Toggle specific notification preference"""
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    data = query.data
+    
+    async with async_session() as session:
+        lang = await get_user_language(session, user_id, update=update)
+        result = await session.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            user = User(id=user_id)
+            session.add(user)
+        
+        # Toggle the appropriate field
+        if data == "toggle_trade_notifications":
+            user.mute_trade_notifications = not (user.mute_trade_notifications or False)
+        elif data == "toggle_daily_summary":
+            user.mute_daily_summary = not (user.mute_daily_summary or False)
+        
+        await session.commit()
+    
+    # Show updated menu
+    await settings_notifications_callback(update, context)
+
 async def cancel_conv(update: Optional[Update], context: ContextTypes.DEFAULT_TYPE):
     if context and getattr(context, "user_data", None):
         context.user_data.clear()
@@ -4185,6 +4307,9 @@ def main():
 
     # language & settings handlers
     application.add_handler(CallbackQueryHandler(settings_language_open_callback, pattern='^settings_language$'))
+    application.add_handler(CallbackQueryHandler(settings_notifications_callback, pattern='^settings_notifications$'))
+    application.add_handler(CallbackQueryHandler(toggle_notification_callback, pattern='^toggle_trade_notifications$'))
+    application.add_handler(CallbackQueryHandler(toggle_notification_callback, pattern='^toggle_daily_summary$'))
     application.add_handler(CallbackQueryHandler(language_callback_handler, pattern='^lang_'))
     application.add_handler(CallbackQueryHandler(language_callback_handler, pattern='^lang_auto$'))
 
@@ -4288,10 +4413,27 @@ def main():
         _scheduler = AsyncIOScheduler(event_loop=loop)
     except TypeError:
         _scheduler = AsyncIOScheduler()
-    # daily profit
+    # daily profit reset at midnight UTC
     _scheduler.add_job(daily_profit_job, 'cron', hour=0, minute=0)
-    # daily summary job at 23:59 UTC
-    _scheduler.add_job(daily_summary_job, 'cron', hour=23, minute=59)
+    
+    # Calculate daily summary time: 40 minutes after last expected trade
+    # Get trading hours from defaults (can be overridden in DB)
+    # Last trade time = start_hour + (trades-1) * interval_minutes
+    # Summary time = last_trade_time + 40 minutes
+    last_trade_offset_minutes = (TRADES_PER_DAY - 1) * TRADING_FREQ_MINUTES
+    summary_offset_minutes = last_trade_offset_minutes + 40
+    summary_ny_hour = TRADING_START_HOUR + (summary_offset_minutes // 60)
+    summary_ny_minute = summary_offset_minutes % 60
+    # Convert NY time to UTC (add 5 hours for ET approximation)
+    summary_utc_hour = (summary_ny_hour + 5) % 24
+    summary_utc_minute = summary_ny_minute
+    
+    # Schedule daily summary job 40 minutes after last trade
+    _scheduler.add_job(daily_summary_job, 'cron', 
+                      hour=summary_utc_hour, minute=summary_utc_minute)
+    logger.info(f"Daily summary scheduled for {summary_utc_hour:02d}:{summary_utc_minute:02d} UTC "
+               f"(NY: {summary_ny_hour:02d}:{summary_ny_minute:02d}, 40 min after last trade)")
+    
     # SCHEDULE trading_job directly as coroutine — not via lambda
     _scheduler.add_job(
         trading_job, 
