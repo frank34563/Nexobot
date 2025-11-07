@@ -1916,7 +1916,7 @@ async def invest_cmd_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user_id = update.effective_user.id
     async with async_session() as session:
         lang = await get_user_language(session, user_id, update)
-    await update.effective_message.reply_text(t(lang, "invest_enter_amount"), reply_markup=None)
+    await update.effective_message.reply_text(t(lang, "invest_enter_amount"), reply_markup=None, parse_mode="HTML")
     return INVEST_AMOUNT
 
 async def invest_start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1925,7 +1925,7 @@ async def invest_start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lang = await get_user_language(session, user_id, update)
     if update.callback_query:
         await update.callback_query.answer()
-        await update.callback_query.message.reply_text(t(lang, "invest_enter_amount"))
+        await update.callback_query.message.reply_text(t(lang, "invest_enter_amount"), parse_mode="HTML")
     return INVEST_AMOUNT
 
 async def invest_amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2161,7 +2161,7 @@ async def withdraw_cmd_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     user_id = update.effective_user.id
     async with async_session() as session:
         lang = await get_user_language(session, user_id, update)
-    await update.effective_message.reply_text(t(lang, "withdraw_enter_amount"))
+    await update.effective_message.reply_text(t(lang, "withdraw_enter_amount"), parse_mode="HTML")
     return WITHDRAW_AMOUNT
 
 async def withdraw_start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2170,7 +2170,7 @@ async def withdraw_start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
         lang = await get_user_language(session, user_id, update)
     if update.callback_query:
         await update.callback_query.answer()
-        await update.callback_query.message.reply_text(t(lang, "withdraw_enter_amount"))
+        await update.callback_query.message.reply_text(t(lang, "withdraw_enter_amount"), parse_mode="HTML")
     return WITHDRAW_AMOUNT
 
 async def withdraw_amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
