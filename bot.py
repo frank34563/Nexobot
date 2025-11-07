@@ -605,6 +605,7 @@ TRANSLATIONS = {
         # Help command
         "help_message": "Need assistance? Click below to chat with support:",
         "help_button": "💬 Open Support Chat",
+        "operation_cancelled": "❌ Operation cancelled.",
         # Balance page
         "balance_title": "Your Account Balance",
         "balance_available": "Available",
@@ -715,6 +716,7 @@ TRANSLATIONS = {
         # Help command
         "help_message": "Besoin d'aide? Cliquez ci-dessous pour discuter avec le support:",
         "help_button": "💬 Ouvrir le Chat de Support",
+        "operation_cancelled": "❌ Opération annulée.",
         # Balance page
         "balance_title": "Solde de Votre Compte",
         "balance_available": "Disponible",
@@ -825,6 +827,7 @@ TRANSLATIONS = {
         # Help command
         "help_message": "¿Necesitas ayuda? Haz clic abajo para chatear con soporte:",
         "help_button": "💬 Abrir Chat de Soporte",
+        "operation_cancelled": "❌ Operación cancelada.",
         # Balance page
         "balance_title": "Saldo de Tu Cuenta",
         "balance_available": "Disponible",
@@ -935,6 +938,7 @@ TRANSLATIONS = {
         # Help command
         "help_message": "تحتاج مساعدة؟ انقر أدناه للدردشة مع الدعم:",
         "help_button": "💬 فتح محادثة الدعم",
+        "operation_cancelled": "❌ تم إلغاء العملية.",
         # Balance page
         "balance_title": "رصيد حسابك",
         "balance_available": "متاح",
@@ -1046,6 +1050,7 @@ TRANSLATIONS = {
         # Help command
         "help_message": "需要帮助？点击下面与支持聊天：",
         "help_button": "💬 打开支持聊天",
+        "operation_cancelled": "❌ 操作已取消。",
         # Balance page
         "balance_title": "您的账户余额",
         "balance_available": "可用",
@@ -4107,6 +4112,31 @@ async def cancel_conv(update: Optional[Update], context: ContextTypes.DEFAULT_TY
         context.user_data.clear()
     if update and getattr(update, "callback_query", None):
         await update.callback_query.answer()
+    
+    # Send cancellation message and show main menu
+    if update and update.effective_user:
+        user_id = update.effective_user.id
+        async with async_session() as session:
+            lang = await get_user_language(session, user_id, update)
+            cancel_msg = TRANSLATIONS[lang].get("operation_cancelled", "❌ Operation cancelled.")
+            
+            # Send main menu
+            keyboard = [
+                [InlineKeyboardButton(TRANSLATIONS[lang]["wallet"], callback_data="wallet")],
+                [InlineKeyboardButton(TRANSLATIONS[lang]["invest"], callback_data="deposit")],
+                [InlineKeyboardButton(TRANSLATIONS[lang]["withdraw"], callback_data="withdraw")],
+                [InlineKeyboardButton(TRANSLATIONS[lang]["referrals"], callback_data="referrals")],
+                [InlineKeyboardButton(TRANSLATIONS[lang]["statistics"], callback_data="statistics")],
+                [InlineKeyboardButton(TRANSLATIONS[lang]["settings"], callback_data="settings")],
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(
+                f"{cancel_msg}\n\n{MAIN_MENU_CAPTION}",
+                reply_markup=reply_markup,
+                parse_mode=ParseMode.HTML
+            )
+    
     return ConversationHandler.END
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
