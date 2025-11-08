@@ -19,6 +19,7 @@ import re
 import asyncio
 import sys
 import json
+import math
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Optional, List
 from dotenv import load_dotenv
@@ -1420,9 +1421,8 @@ def pick_random_pair() -> str:
 
 # Trading control
 TRADING_ENABLED = True
-TRADING_FREQ_MINUTES = 52  # Default: 52 minutes between trades
-TRADES_PER_DAY = 15  # Default: 15 trades per day (every 52 minutes)
-MINUTES_PER_DAY = 24 * 60  # 1440 minutes in a day
+TRADES_PER_DAY = 15  # Default: 15 trades per day
+MINUTES_PER_DAY = 24 * 60  # 1440 minutes in a day (for reference only)
 TRADING_JOB_ID = 'trading_job_scheduled'
 _trading_job = None
 
@@ -1430,6 +1430,13 @@ _trading_job = None
 # Default: 5 AM - 6 PM Eastern Time (configurable via admin commands)
 TRADING_START_HOUR = 5  # 5 AM ET
 TRADING_END_HOUR = 18   # 6 PM ET
+
+# Calculate default frequency based on trading window
+# Trading window: 13 hours = 780 minutes, 15 trades = 14 intervals
+# Frequency: 780 / 14 = 55.7 → floor to 55 minutes to ensure all trades fit within window
+TRADING_WINDOW_HOURS = TRADING_END_HOUR - TRADING_START_HOUR
+TRADING_WINDOW_MINUTES = TRADING_WINDOW_HOURS * 60
+TRADING_FREQ_MINUTES = math.floor(TRADING_WINDOW_MINUTES / (TRADES_PER_DAY - 1))
 
 # -----------------------
 # Trading job: fetch Binance prices with cache, use per-user config, update balances
@@ -2632,8 +2639,20 @@ async def cmd_set_trades_per_day(update: Update, context: ContextTypes.DEFAULT_T
         await update.effective_message.reply_text("Trades per day must be a positive integer.")
         return
     
-    # Calculate frequency in minutes (use round for accuracy)
-    freq_minutes = max(1, round(MINUTES_PER_DAY / trades_per_day))
+    # Get trading hours from config to calculate frequency based on actual trading window
+    async with async_session() as session:
+        trading_start = int(await get_config(session, 'trading_start_hour', str(TRADING_START_HOUR)))
+        trading_end = int(await get_config(session, 'trading_end_hour', str(TRADING_END_HOUR)))
+    
+    # Calculate trading window in minutes
+    trading_window_hours = trading_end - trading_start
+    trading_window_minutes = trading_window_hours * 60
+    
+    # Calculate frequency: divide trading window by number of intervals (trades - 1)
+    # For N trades, there are N-1 intervals between them
+    # Use floor to ensure all trades fit within the trading window
+    intervals = trades_per_day - 1 if trades_per_day > 1 else 1
+    freq_minutes = max(1, math.floor(trading_window_minutes / intervals))
     
     global TRADES_PER_DAY, TRADING_FREQ_MINUTES
     TRADES_PER_DAY = trades_per_day
@@ -2662,6 +2681,8 @@ async def cmd_set_trades_per_day(update: Update, context: ContextTypes.DEFAULT_T
     await update.effective_message.reply_text(
         f"✅ Trades per day set to {trades_per_day}.\n"
         f"Trading frequency: {freq_minutes} minutes.\n"
+        f"Trading window: {trading_start}:00 - {trading_end}:00 ET ({trading_window_hours} hours).\n"
+        f"All trades will complete within the trading window.\n"
         f"Changes applied immediately."
     )
     await post_admin_log(context.bot, f"Admin set trades per day to {trades_per_day} (frequency: {freq_minutes} minutes).")
@@ -2806,6 +2827,10 @@ async def cmd_trading_status(update: Update, context: ContextTypes.DEFAULT_TYPE)
         daily_max = await get_config(session, 'daily_range_max', '1.5')
         negative_trades = await get_config(session, 'negative_trades_per_day', '5')
         
+        # Get trading hours for display
+        trading_start = int(await get_config(session, 'trading_start_hour', str(TRADING_START_HOUR)))
+        trading_end = int(await get_config(session, 'trading_end_hour', str(TRADING_END_HOUR)))
+        
         result = await session.execute(select(UserTradeConfig))
         user_configs = result.scalars().all()
         override_count = len(user_configs)
@@ -2818,11 +2843,14 @@ async def cmd_trading_status(update: Update, context: ContextTypes.DEFAULT_TYPE)
             if len(user_configs) > 10:
                 override_text += f"  ... and {len(user_configs) - 10} more\n"
     
+    trading_window_hours = trading_end - trading_start
+    
     status_text = (
         "⚙️ Trading Configuration Status\n\n"
         f"🔄 Trading: {'ENABLED' if TRADING_ENABLED else 'DISABLED'}\n"
-        f"⏱ Frequency: {TRADING_FREQ_MINUTES} minutes (determined by trades per day)\n"
-        f"📊 Trades per day: {TRADES_PER_DAY} (determined by frequency)\n"
+        f"⏰ Trading window: {trading_start}:00 - {trading_end}:00 ET ({trading_window_hours} hours)\n"
+        f"📊 Trades per day: {TRADES_PER_DAY}\n"
+        f"⏱️ Frequency: {TRADING_FREQ_MINUTES} minutes (fits within trading window)\n"
         f"💹 Global daily percent: {daily_min}% to {daily_max}%\n"
         f"📈 Global trade percent: {trade_min}% to {trade_max}%\n"
         f"📉 Negative trades per day: {negative_trades} (loss: -0.05% to -0.25%)\n"
