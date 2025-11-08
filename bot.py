@@ -1293,6 +1293,13 @@ def tx_card_text(tx: Transaction, username: Optional[str] = None) -> str:
                  f"Status: <b>{(tx.status or '').upper()}</b>\n"
                  f"Created: {created}\n")
     
+    # For invest transactions, include wallet and network where user sent payment
+    if tx.type == 'invest' and tx.wallet:
+        wallet_info = (f"\n💳 <b>Deposit Wallet:</b>\n"
+                      f"Wallet: <code>{tx.wallet}</code>\n"
+                      f"Network: <b>{tx.network or 'N/A'}</b>\n")
+        base_text += wallet_info
+    
     # For withdrawal transactions, include wallet and network for admin to copy
     if tx.type == 'withdraw' and tx.wallet:
         wallet_info = (f"\n💳 <b>Withdrawal Details:</b>\n"
