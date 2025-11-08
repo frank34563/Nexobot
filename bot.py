@@ -1502,6 +1502,11 @@ async def trading_job():
                     if percent_per_trade > remaining_daily_percent:
                         percent_per_trade = remaining_daily_percent
                     
+                    # Skip trade if capped percentage falls below minimum threshold
+                    if percent_per_trade < trade_min:
+                        logger.debug(f"User {user.id} skipping trade: capped percent {percent_per_trade:.4f}% < minimum {trade_min}%")
+                        continue
+                    
                     if percent_per_trade <= 0:
                         continue
                 
@@ -1585,7 +1590,7 @@ async def trading_job():
                 # Trading alert translations
                 trade_alerts = {
                     'en': {
-                        'title': '📢 AI trade was executed',
+                        'title': '✅ Trade Completed Successfully',
                         'date': 'Date',
                         'pair': 'Trading pair',
                         'buy': 'Buy rate',
@@ -1594,7 +1599,7 @@ async def trading_job():
                         'balance': 'Balance'
                     },
                     'fr': {
-                        'title': '📢 Transaction IA exécutée',
+                        'title': '✅ Transaction Terminée avec Succès',
                         'date': 'Date',
                         'pair': 'Paire de trading',
                         'buy': 'Taux d\'achat',
@@ -1603,7 +1608,7 @@ async def trading_job():
                         'balance': 'Solde'
                     },
                     'es': {
-                        'title': '📢 Operación IA ejecutada',
+                        'title': '✅ Operación Completada Exitosamente',
                         'date': 'Fecha',
                         'pair': 'Par de trading',
                         'buy': 'Tasa de compra',
@@ -1612,7 +1617,7 @@ async def trading_job():
                         'balance': 'Saldo'
                     },
                     'ar': {
-                        'title': '📢 تم تنفيذ صفقة الذكاء الاصطناعي',
+                        'title': '✅ تمت الصفقة بنجاح',
                         'date': 'التاريخ',
                         'pair': 'زوج التداول',
                         'buy': 'سعر الشراء',
@@ -1624,7 +1629,7 @@ async def trading_job():
                 
                 t = trade_alerts.get(lang, trade_alerts['en'])
                 trade_text = (
-                    f"{t['title']}\n\n"
+                    f"{t['title']} \n\n"
                     f"📅 {t['date']}: {date_str}\n"
                     f"💱 {t['pair']}: {trading_pair_str}\n"
                     f"📈 {t['buy']}: {buy_rate}\n"
