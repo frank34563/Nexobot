@@ -1657,6 +1657,8 @@ async def trading_job():
                     try:
                         if application and application.bot:
                             await application.bot.send_message(chat_id=user.id, text=trade_text)
+                            # Add small delay to respect Telegram rate limits (30 msg/sec)
+                            await asyncio.sleep(0.05)  # 50ms delay = max 20 msg/sec
                         else:
                             logger.warning("Application bot not available for trade notification to user %s", user.id)
                     except Exception as e:
@@ -1749,6 +1751,8 @@ async def daily_summary_job():
                 if not (user.mute_daily_summary or False):
                     try:
                         await application.bot.send_message(chat_id=user_id, text=summary_text)
+                        # Add small delay to respect Telegram rate limits (30 msg/sec)
+                        await asyncio.sleep(0.05)  # 50ms delay = max 20 msg/sec
                     except Exception as e:
                         logger.debug(f"Unable to send daily summary to user {user_id}: {e}")
                 
