@@ -2896,6 +2896,9 @@ async def cmd_trading_status(update: Update, context: ContextTypes.DEFAULT_TYPE)
         trading_start = int(await get_config(session, 'trading_start_hour', str(TRADING_START_HOUR)))
         trading_end = int(await get_config(session, 'trading_end_hour', str(TRADING_END_HOUR)))
         
+        # Get trades per day from config to calculate actual frequency
+        trades_per_day = int(await get_config(session, 'trades_per_day', str(TRADES_PER_DAY)))
+        
         result = await session.execute(select(UserTradeConfig))
         user_configs = result.scalars().all()
         override_count = len(user_configs)
@@ -2910,16 +2913,21 @@ async def cmd_trading_status(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     trading_window_hours = trading_end - trading_start
     
+    # Calculate actual frequency based on current config (not global variable)
+    trading_window_minutes = trading_window_hours * 60
+    intervals = trades_per_day - 1 if trades_per_day > 1 else 1
+    freq_minutes = max(1, math.floor(trading_window_minutes / intervals))
+    
     # Calculate trade breakdown
     negative_trades_int = int(negative_trades)
-    positive_trades_est = max(0, TRADES_PER_DAY - negative_trades_int)
+    positive_trades_est = max(0, trades_per_day - negative_trades_int)
     
     status_text = (
         "⚙️ Trading Configuration Status\n\n"
         f"🔄 Trading: {'ENABLED' if TRADING_ENABLED else 'DISABLED'}\n"
         f"⏰ Trading window: {trading_start}:00 - {trading_end}:00 ET ({trading_window_hours} hours)\n"
-        f"📊 Total trades/day: {TRADES_PER_DAY} (≈{positive_trades_est} positive + {negative_trades_int} negative)\n"
-        f"⏱️ Frequency: {TRADING_FREQ_MINUTES} minutes (fits within trading window)\n"
+        f"📊 Total trades/day: {trades_per_day} (≈{positive_trades_est} positive + {negative_trades_int} negative)\n"
+        f"⏱️ Frequency: {freq_minutes} minutes (fits within trading window)\n"
         f"💹 Global daily percent: {daily_min}% to {daily_max}%\n"
         f"📈 Global trade percent: {trade_min}% to {trade_max}%\n"
         f"📉 Negative trades per day: {negative_trades} (loss: -0.05% to -0.25%)\n"
