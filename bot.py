@@ -26,6 +26,7 @@ from dotenv import load_dotenv
 
 from decimal import Decimal, ROUND_HALF_UP
 import httpx
+import pytz
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.base import JobLookupError
@@ -97,6 +98,25 @@ GLOBAL_NEGATIVE_TRADES_PER_DAY = 1  # default 1 negative trade per day
 
 # Minimum deposit amount in USDT
 MIN_DEPOSIT_AMOUNT = 10.0  # Minimum investment deposit is 10 USDT
+
+# Timezone configuration - use New York timezone for all operations
+NY_TZ = pytz.timezone('America/New_York')
+
+def get_ny_time():
+    """Get current time in New York timezone"""
+    return datetime.now(NY_TZ)
+
+def utc_to_ny(utc_dt):
+    """Convert UTC datetime to NY timezone"""
+    if utc_dt.tzinfo is None:
+        utc_dt = pytz.utc.localize(utc_dt)
+    return utc_dt.astimezone(NY_TZ)
+
+def ny_to_utc(ny_dt):
+    """Convert NY datetime to UTC (for database storage)"""
+    if ny_dt.tzinfo is None:
+        ny_dt = NY_TZ.localize(ny_dt)
+    return ny_dt.astimezone(pytz.utc).replace(tzinfo=None)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -1451,10 +1471,9 @@ async def trading_job():
         logger.debug("trading_job: Trading is disabled (TRADING_ENABLED=%s, DB=%s), skipping run", TRADING_ENABLED, trading_enabled_db)
         return
     
-    # Check trading hours (New York timezone: UTC-5 EST or UTC-4 EDT)
-    # Using UTC-5 as standard offset for Eastern Time
-    now = datetime.utcnow()
-    ny_hour = (now.hour - 5) % 24  # Convert UTC to Eastern Time (approximate)
+    # Check trading hours (New York timezone with proper DST handling)
+    now_ny = get_ny_time()
+    ny_hour = now_ny.hour
     
     async with async_session() as session:
         # Get configured trading hours from database
@@ -1466,14 +1485,18 @@ async def trading_job():
                         ny_hour, trading_start, trading_end)
             return
     
-    logger.info("trading_job: starting run at %s (NY hour: %02d:00)", now.isoformat(), ny_hour)
+    logger.info("trading_job: starting run at %s (NY hour: %02d:00)", now_ny.strftime("%Y-%m-%d %H:%M:%S %Z"), ny_hour)
+    
+    # Convert NY time to UTC for database storage
+    now = ny_to_utc(now_ny)
+    
     async with async_session() as session:
         # Get configured ranges from Config
         trade_min = float(await get_config(session, 'trade_range_min', '0.05'))
         trade_max = float(await get_config(session, 'trade_range_max', '0.25'))
         daily_min = float(await get_config(session, 'daily_range_min', '1.25'))
         daily_max = float(await get_config(session, 'daily_range_max', '1.5'))
-        negative_trades_per_day = int(await get_config(session, 'negative_trades_per_day', '5'))
+        negative_trades_per_day = int(await get_config(session, 'negative_trades_per_day', '1'))
         
         result = await session.execute(select(User))
         users = result.scalars().all()
@@ -1695,8 +1718,9 @@ async def trading_job():
 async def daily_summary_job():
     """Send daily summary to users and persist records"""
     logger.info("daily_summary_job: starting daily summary")
-    now = datetime.utcnow()
-    today_date = now.date()
+    now_ny = get_ny_time()
+    today_date = now_ny.date()
+    now = ny_to_utc(now_ny)  # For database storage
     
     async with async_session() as session:
         result = await session.execute(select(User))
@@ -2866,7 +2890,7 @@ async def cmd_trading_status(update: Update, context: ContextTypes.DEFAULT_TYPE)
         trade_max = await get_config(session, 'trade_range_max', '0.25')
         daily_min = await get_config(session, 'daily_range_min', '1.25')
         daily_max = await get_config(session, 'daily_range_max', '1.5')
-        negative_trades = await get_config(session, 'negative_trades_per_day', '5')
+        negative_trades = await get_config(session, 'negative_trades_per_day', '1')
         
         # Get trading hours for display
         trading_start = int(await get_config(session, 'trading_start_hour', str(TRADING_START_HOUR)))
@@ -3833,8 +3857,8 @@ async def cmd_check_notifications(update: Update, context: ContextTypes.DEFAULT_
             trading_enabled = TRADING_ENABLED and (trading_enabled_db == '1')
             
             # Check current NY time and trading hours
-            now = datetime.utcnow()
-            ny_hour = (now.hour - 5) % 24
+            now_ny = get_ny_time()
+            ny_hour = now_ny.hour
             trading_start = int(await get_config(session, 'trading_start_hour', str(TRADING_START_HOUR)))
             trading_end = int(await get_config(session, 'trading_end_hour', str(TRADING_END_HOUR)))
             in_trading_hours = trading_start <= ny_hour < trading_end
@@ -4231,7 +4255,7 @@ async def cmd_list_trading_vars(update: Update, context: ContextTypes.DEFAULT_TY
         trade_max = await get_config(session, 'trade_range_max', '0.25')
         daily_min = await get_config(session, 'daily_range_min', '1.25')
         daily_max = await get_config(session, 'daily_range_max', '1.5')
-        negative_trades = await get_config(session, 'negative_trades_per_day', '5')
+        negative_trades = await get_config(session, 'negative_trades_per_day', '1')
     
     # Check scheduler status
     scheduler_running = "✅ Running" if _scheduler and _scheduler.running else "❌ Not Running"
