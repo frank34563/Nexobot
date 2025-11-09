@@ -3820,7 +3820,8 @@ async def cmd_system_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 select(ErrorLog).where(ErrorLog.created_at >= one_hour_ago)
             )
             recent_errors = len(result.scalars().all())
-    except:
+    except Exception as e:
+        logger.debug(f"Could not fetch error logs: {e}")
         recent_errors = "N/A"
     
     status_text = (
