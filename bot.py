@@ -1478,12 +1478,18 @@ async def trading_job():
         result = await session.execute(select(User))
         users = result.scalars().all()
         if not users:
-            logger.debug("trading_job: no users found")
+            logger.info("trading_job: no users found")
             return
+        
+        logger.info(f"trading_job: processing {len(users)} users")
+        trades_executed = 0
+        notifications_sent = 0
+        
         for user in users:
             try:
                 bal = float(user.balance or 0.0)
                 if bal <= 1.0:
+                    logger.debug(f"Skipping user {user.id}: balance too low ({bal:.2f})")
                     continue
                 
                 # Calculate daily profit percentage so far
@@ -1651,20 +1657,29 @@ async def trading_job():
                     f"📊 {t['profit']}: {profit_percent}%\n"
                     f"💰{t['balance']}: {display_balance} USDT"
                 )
-                # Use application instance if available, otherwise skip notification
+                # Increment trade counter
+                trades_executed += 1
+                
                 # Check if user has muted trade notifications
                 if not (user.mute_trade_notifications or False):
                     try:
+                        # Send trade notification via bot
                         if application and application.bot:
                             await application.bot.send_message(chat_id=user.id, text=trade_text)
+                            notifications_sent += 1
+                            logger.info(f"Sent trade notification to user {user.id}: profit={profit_percent}%")
                             # Add small delay to respect Telegram rate limits (30 msg/sec)
                             await asyncio.sleep(0.05)  # 50ms delay = max 20 msg/sec
                         else:
-                            logger.warning("Application bot not available for trade notification to user %s", user.id)
+                            logger.error("Application bot not available for trade notification to user %s", user.id)
                     except Exception as e:
-                        logger.warning("Unable to send trade alert to user %s: %s", user.id, str(e))
+                        logger.error("Failed to send trade alert to user %s: %s", user.id, str(e))
+                else:
+                    logger.debug(f"User {user.id} has muted trade notifications")
             except Exception:
                 logger.exception("trading_job failed for user %s", getattr(user, "id", "<unknown>"))
+        
+        logger.info(f"trading_job: completed - executed {trades_executed} trades, sent {notifications_sent} notifications")
 
 # -----------------------
 # Daily summary job: runs 40 minutes after last trade to summarize daily trading
@@ -3775,6 +3790,77 @@ async def cmd_error_logs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.effective_message.reply_text(f"Error retrieving logs: {str(e)}")
 
+async def cmd_check_notifications(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin command: /check_notifications - Check notification system status"""
+    user_id = update.effective_user.id
+    if not _is_admin(user_id):
+        await update.effective_message.reply_text("Forbidden: admin only.")
+        return
+    
+    try:
+        async with async_session() as session:
+            # Get all users
+            result = await session.execute(select(User))
+            users = result.scalars().all()
+            
+            # Count users by notification status
+            total_users = len(users)
+            users_with_balance = sum(1 for u in users if float(u.balance or 0) > 1.0)
+            users_muted_trades = sum(1 for u in users if (u.mute_trade_notifications or False))
+            users_muted_summary = sum(1 for u in users if (u.mute_daily_summary or False))
+            users_active = users_with_balance - users_muted_trades
+            
+            # Check trading status
+            trading_enabled_db = await get_config(session, 'trading_enabled', '1')
+            trading_enabled = TRADING_ENABLED and (trading_enabled_db == '1')
+            
+            # Check current NY time and trading hours
+            now = datetime.utcnow()
+            ny_hour = (now.hour - 5) % 24
+            trading_start = int(await get_config(session, 'trading_start_hour', str(TRADING_START_HOUR)))
+            trading_end = int(await get_config(session, 'trading_end_hour', str(TRADING_END_HOUR)))
+            in_trading_hours = trading_start <= ny_hour < trading_end
+            
+            # Check bot availability
+            bot_available = application and application.bot
+            
+        status_text = (
+            f"🔔 <b>Notification System Status</b>\n\n"
+            f"<b>📊 User Statistics:</b>\n"
+            f"Total users: {total_users}\n"
+            f"Users with balance > $1: {users_with_balance}\n"
+            f"Users with muted trades: {users_muted_trades}\n"
+            f"Users with muted summaries: {users_muted_summary}\n"
+            f"Active traders (can receive): {users_active}\n\n"
+            f"<b>🤖 Trading System:</b>\n"
+            f"Trading enabled: {'✅ Yes' if trading_enabled else '❌ No'}\n"
+            f"Current NY time: {ny_hour:02d}:00\n"
+            f"Trading hours: {trading_start:02d}:00 - {trading_end:02d}:00\n"
+            f"In trading hours: {'✅ Yes' if in_trading_hours else '❌ No'}\n\n"
+            f"<b>💬 Bot Status:</b>\n"
+            f"Bot instance: {'✅ Available' if bot_available else '❌ Not available'}\n"
+            f"Scheduler: {'✅ Running' if _scheduler and _scheduler.running else '❌ Not running'}\n\n"
+            f"<b>🔍 Diagnosis:</b>\n"
+        )
+        
+        # Add diagnosis messages
+        if not trading_enabled:
+            status_text += "⚠️ Trading is disabled - no trades or notifications will be sent\n"
+        elif not in_trading_hours:
+            status_text += "⏰ Outside trading hours - waiting for next trading window\n"
+        elif not bot_available:
+            status_text += "❌ Bot not available - notifications cannot be sent!\n"
+        elif users_active == 0:
+            status_text += "⚠️ No active traders (all users have low balance or muted)\n"
+        else:
+            status_text += f"✅ System ready - {users_active} users will receive notifications\n"
+        
+        status_text += "\n<i>Use /list_trading_vars for more trading details</i>"
+        
+        await update.effective_message.reply_text(status_text, parse_mode="HTML")
+    except Exception as e:
+        await update.effective_message.reply_text(f"Error checking notification status: {str(e)}")
+
 async def cmd_send_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin command: /send_reminders - Send reminders for pending transactions over 24h"""
     user_id = update.effective_user.id
@@ -4018,6 +4104,7 @@ async def cmd_admin_cmds(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/admin_stats - View analytics dashboard\n"
         "/system_status - System health check\n"
         "/error_logs - View recent errors\n"
+        "/check_notifications - Check notification system status\n"
         "/send_reminders - Send reminders for old pending txs\n\n"
         "**Admin:**\n"
         "/admin_cmds - Show this message\n"
@@ -4754,6 +4841,7 @@ def main():
     application.add_handler(CommandHandler("admin_stats", cmd_admin_stats))
     application.add_handler(CommandHandler("system_status", cmd_system_status))
     application.add_handler(CommandHandler("error_logs", cmd_error_logs))
+    application.add_handler(CommandHandler("check_notifications", cmd_check_notifications))
     application.add_handler(CommandHandler("send_reminders", cmd_send_reminders))
     
     # User stats command
