@@ -3173,13 +3173,48 @@ async def cmd_set_trading_hours(update: Update, context: ContextTypes.DEFAULT_TY
     async with async_session() as session:
         await set_config(session, 'trading_start_hour', str(start_hour))
         await set_config(session, 'trading_end_hour', str(end_hour))
+        
+        # Get current trades_per_day to recalculate frequency
+        trades_per_day = int(await get_config(session, 'trades_per_day', str(TRADES_PER_DAY)))
+    
+    # Recalculate trading frequency based on new hours
+    trading_window_hours = end_hour - start_hour
+    trading_window_minutes = trading_window_hours * 60
+    intervals = trades_per_day - 1 if trades_per_day > 1 else 1
+    freq_minutes = max(1, math.floor(trading_window_minutes / intervals))
+    
+    # Update global variables
+    global TRADING_FREQ_MINUTES
+    TRADING_FREQ_MINUTES = freq_minutes
+    
+    # Reschedule the trading job with new frequency
+    global _scheduler
+    if _scheduler:
+        try:
+            _scheduler.remove_job(TRADING_JOB_ID)
+            logger.info("Removed existing trading job for rescheduling after hours change")
+        except JobLookupError:
+            logger.info("Trading job does not exist yet")
+        
+        # Add new job with updated frequency
+        _scheduler.add_job(
+            trading_job,
+            'interval',
+            minutes=TRADING_FREQ_MINUTES,
+            id=TRADING_JOB_ID,
+            replace_existing=True
+        )
+        logger.info("Rescheduled trading job with frequency: %d minutes (based on %d-hour window)", 
+                   TRADING_FREQ_MINUTES, trading_window_hours)
     
     duration = end_hour - start_hour
     await update.effective_message.reply_text(
         f"✅ Trading hours set to {start_hour:02d}:00 - {end_hour:02d}:00 NY time\n"
-        f"({duration} hour window)"
+        f"({duration}-hour window)\n"
+        f"⏱️ Trading frequency recalculated: {freq_minutes} minutes\n"
+        f"(Fits {trades_per_day} trades within the window)"
     )
-    await post_admin_log(context.bot, f"Admin set trading hours to {start_hour:02d}:00 - {end_hour:02d}:00 NY time")
+    await post_admin_log(context.bot, f"Admin set trading hours to {start_hour:02d}:00 - {end_hour:02d}:00 NY time (frequency: {freq_minutes} min)")
 
 async def cmd_trading_hours_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin command: /trading_hours_status - Show current trading hours configuration"""
