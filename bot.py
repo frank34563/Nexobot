@@ -1499,6 +1499,9 @@ async def trading_job():
                     starting_balance = bal
                 current_daily_percent = (daily_profit_so_far / starting_balance) * 100 if starting_balance > 0 else 0
                 
+                # Log user status for debugging
+                logger.info(f"Processing user {user.id}: balance=${bal:.2f}, daily_profit=${daily_profit_so_far:.2f} ({current_daily_percent:.2f}%), muted={user.mute_trade_notifications or False}")
+                
                 # Determine if this should be a negative trade
                 # Probability based on negative_trades_per_day / TRADES_PER_DAY
                 negative_trade_probability = negative_trades_per_day / TRADES_PER_DAY if TRADES_PER_DAY > 0 else 0.15
@@ -1511,7 +1514,7 @@ async def trading_job():
                     # Positive trade: check if we haven't exceeded maximum daily target
                     # Use daily_max as the hard limit to ensure all users get trades throughout the day
                     if current_daily_percent >= daily_max:
-                        logger.debug(f"User {user.id} reached maximum daily target: {current_daily_percent:.2f}% >= {daily_max:.2f}%")
+                        logger.info(f"User {user.id} reached maximum daily target: {current_daily_percent:.2f}% >= {daily_max:.2f}% - skipping")
                         continue
                     
                     # Generate random percent_per_trade within allowed range
@@ -1524,7 +1527,7 @@ async def trading_job():
                     
                     # Skip trade if capped percentage falls below minimum threshold
                     if percent_per_trade < trade_min:
-                        logger.debug(f"User {user.id} skipping trade: capped percent {percent_per_trade:.4f}% < minimum {trade_min}%")
+                        logger.info(f"User {user.id} skipping trade: capped percent {percent_per_trade:.4f}% < minimum {trade_min}% (remaining space: {remaining_daily_percent:.4f}%)")
                         continue
                     
                     if percent_per_trade <= 0:
@@ -3865,6 +3868,78 @@ async def cmd_check_notifications(update: Update, context: ContextTypes.DEFAULT_
     except Exception as e:
         await update.effective_message.reply_text(f"Error checking notification status: {str(e)}")
 
+async def cmd_user_trade_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin command: /user_trade_status - Show detailed trade status for each user"""
+    user_id = update.effective_user.id
+    if not _is_admin(user_id):
+        await update.effective_message.reply_text("Forbidden: admin only.")
+        return
+    
+    try:
+        async with async_session() as session:
+            # Get trading config
+            trade_min = float(await get_config(session, 'trade_range_min', '0.05'))
+            trade_max = float(await get_config(session, 'trade_range_max', '0.25'))
+            daily_min = float(await get_config(session, 'daily_range_min', '1.25'))
+            daily_max = float(await get_config(session, 'daily_range_max', '1.5'))
+            
+            # Get all users with balance > 1
+            result = await session.execute(select(User))
+            users = result.scalars().all()
+            
+            eligible_users = [u for u in users if float(u.balance or 0) > 1.0]
+            
+            if not eligible_users:
+                await update.effective_message.reply_text("No users with balance > $1")
+                return
+            
+            status_lines = [f"<b>📊 User Trade Status ({len(eligible_users)} users)</b>\n"]
+            
+            for user in eligible_users:
+                bal = float(user.balance or 0.0)
+                daily_profit = float(user.daily_profit or 0.0)
+                starting_balance = bal - daily_profit if bal > daily_profit else bal
+                current_percent = (daily_profit / starting_balance * 100) if starting_balance > 0 else 0
+                
+                # Check if user would trade
+                can_trade = current_percent < daily_max
+                remaining = daily_max - current_percent if can_trade else 0
+                muted = user.mute_trade_notifications or False
+                
+                status = "✅ Will trade" if can_trade else "❌ At max"
+                if muted:
+                    status += " (🔇 muted)"
+                
+                status_lines.append(
+                    f"\n<b>User {user.id}:</b> {status}\n"
+                    f"  Balance: ${bal:.2f}\n"
+                    f"  Today's profit: ${daily_profit:.2f} ({current_percent:.2f}%)\n"
+                    f"  Can add: {remaining:.2f}% more\n"
+                    f"  Range: {trade_min:.2f}%-{trade_max:.2f}% per trade"
+                )
+            
+            status_text = "\n".join(status_lines)
+            
+            # Split into multiple messages if too long
+            if len(status_text) > 4000:
+                # Send in chunks
+                chunks = []
+                current_chunk = status_lines[0]
+                for line in status_lines[1:]:
+                    if len(current_chunk) + len(line) > 4000:
+                        chunks.append(current_chunk)
+                        current_chunk = line
+                    else:
+                        current_chunk += line
+                chunks.append(current_chunk)
+                
+                for chunk in chunks:
+                    await update.effective_message.reply_text(chunk, parse_mode="HTML")
+            else:
+                await update.effective_message.reply_text(status_text, parse_mode="HTML")
+    except Exception as e:
+        await update.effective_message.reply_text(f"Error getting user trade status: {str(e)}")
+
 async def cmd_send_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin command: /send_reminders - Send reminders for pending transactions over 24h"""
     user_id = update.effective_user.id
@@ -4109,6 +4184,7 @@ async def cmd_admin_cmds(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/system_status - System health check\n"
         "/error_logs - View recent errors\n"
         "/check_notifications - Check notification system status\n"
+        "/user_trade_status - Show detailed trade status per user\n"
         "/send_reminders - Send reminders for old pending txs\n\n"
         "**Admin:**\n"
         "/admin_cmds - Show this message\n"
@@ -4846,6 +4922,7 @@ def main():
     application.add_handler(CommandHandler("system_status", cmd_system_status))
     application.add_handler(CommandHandler("error_logs", cmd_error_logs))
     application.add_handler(CommandHandler("check_notifications", cmd_check_notifications))
+    application.add_handler(CommandHandler("user_trade_status", cmd_user_trade_status))
     application.add_handler(CommandHandler("send_reminders", cmd_send_reminders))
     
     # User stats command
