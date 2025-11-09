@@ -1508,17 +1508,17 @@ async def trading_job():
                     # Negative trade: -0.05% to -0.25%
                     percent_per_trade = -random.uniform(0.05, 0.25)
                 else:
-                    # Positive trade: check if we haven't exceeded daily target
-                    daily_target_percent = random.uniform(daily_min, daily_max)
-                    if current_daily_percent >= daily_target_percent:
-                        logger.debug(f"User {user.id} already reached daily target: {current_daily_percent:.2f}% >= {daily_target_percent:.2f}%")
+                    # Positive trade: check if we haven't exceeded maximum daily target
+                    # Use daily_max as the hard limit to ensure all users get trades throughout the day
+                    if current_daily_percent >= daily_max:
+                        logger.debug(f"User {user.id} reached maximum daily target: {current_daily_percent:.2f}% >= {daily_max:.2f}%")
                         continue
                     
                     # Generate random percent_per_trade within allowed range
                     percent_per_trade = random.uniform(trade_min, trade_max)
                     
-                    # Ensure we don't exceed daily limit
-                    remaining_daily_percent = daily_target_percent - current_daily_percent
+                    # Ensure we don't exceed maximum daily limit
+                    remaining_daily_percent = daily_max - current_daily_percent
                     if percent_per_trade > remaining_daily_percent:
                         percent_per_trade = remaining_daily_percent
                     
@@ -1555,6 +1555,10 @@ async def trading_job():
                 new_balance = bal + profit
                 new_daily_profit = float(user.daily_profit or 0.0) + profit
                 new_total_profit = float(user.total_profit or 0.0) + profit
+                
+                # Log trade execution details
+                logger.info(f"Executing trade for user {user.id}: profit={percent_per_trade:.4f}%, amount={profit:.2f} USDT, daily_progress={current_daily_percent:.2f}%→{(new_daily_profit/starting_balance)*100:.2f}%")
+                
                 await update_user(session, user.id, 
                                 balance=new_balance, 
                                 daily_profit=new_daily_profit,
