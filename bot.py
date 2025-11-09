@@ -2750,9 +2750,16 @@ async def cmd_set_negative_trades(update: Update, context: ContextTypes.DEFAULT_
     async with async_session() as session:
         await set_config(session, 'negative_trades_per_day', str(negative_trades))
     
+    # Calculate positive and negative breakdown
+    positive_trades = max(0, TRADES_PER_DAY - negative_trades)
+    
     await update.effective_message.reply_text(
         f"✅ Negative trades per day set to {negative_trades}.\n"
-        f"Each negative trade will result in a loss of -0.05% to -0.25%."
+        f"Each negative trade will result in a loss of -0.05% to -0.25%.\n\n"
+        f"📊 Trade Breakdown:\n"
+        f"  Total trades/day: {TRADES_PER_DAY}\n"
+        f"  Positive trades: ~{positive_trades}\n"
+        f"  Negative trades: ~{negative_trades}"
     )
     await post_admin_log(context.bot, f"Admin set negative trades per day to {negative_trades}.")
 
@@ -2879,11 +2886,15 @@ async def cmd_trading_status(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     trading_window_hours = trading_end - trading_start
     
+    # Calculate trade breakdown
+    negative_trades_int = int(negative_trades)
+    positive_trades_est = max(0, TRADES_PER_DAY - negative_trades_int)
+    
     status_text = (
         "⚙️ Trading Configuration Status\n\n"
         f"🔄 Trading: {'ENABLED' if TRADING_ENABLED else 'DISABLED'}\n"
         f"⏰ Trading window: {trading_start}:00 - {trading_end}:00 ET ({trading_window_hours} hours)\n"
-        f"📊 Trades per day: {TRADES_PER_DAY}\n"
+        f"📊 Total trades/day: {TRADES_PER_DAY} (≈{positive_trades_est} positive + {negative_trades_int} negative)\n"
         f"⏱️ Frequency: {TRADING_FREQ_MINUTES} minutes (fits within trading window)\n"
         f"💹 Global daily percent: {daily_min}% to {daily_max}%\n"
         f"📈 Global trade percent: {trade_min}% to {trade_max}%\n"
@@ -3910,8 +3921,20 @@ async def cmd_user_trade_status(update: Update, context: ContextTypes.DEFAULT_TY
                 if muted:
                     status += " (🔇 muted)"
                 
+                # Try to fetch Telegram username
+                username = None
+                try:
+                    tg_user = await context.bot.get_chat(user.id)
+                    username = tg_user.username if tg_user.username else None
+                except Exception:
+                    pass  # User may have blocked the bot or deleted their account
+                
+                user_display = f"User {user.id}"
+                if username:
+                    user_display += f" (@{username})"
+                
                 status_lines.append(
-                    f"\n<b>User {user.id}:</b> {status}\n"
+                    f"\n<b>{user_display}:</b> {status}\n"
                     f"  Balance: ${bal:.2f}\n"
                     f"  Today's profit: ${daily_profit:.2f} ({current_percent:.2f}%)\n"
                     f"  Can add: {remaining:.2f}% more\n"
@@ -4239,9 +4262,10 @@ async def cmd_list_trading_vars(update: Update, context: ContextTypes.DEFAULT_TY
         f"Binance API (Global): {'✅ Enabled' if USE_BINANCE else '❌ Disabled'}\n"
         f"Binance API (Database): {'✅ Enabled' if use_binance_db == '1' else '❌ Disabled'}\n\n"
         "<b>📈 Trading Parameters:</b>\n"
-        f"Trades Per Day: {TRADES_PER_DAY}\n"
-        f"Trading Frequency: {TRADING_FREQ_MINUTES} minutes\n"
-        f"Negative Trades/Day: {negative_trades}\n\n"
+        f"Total Trades/Day: {TRADES_PER_DAY}\n"
+        f"  • Positive trades: ≈{max(0, TRADES_PER_DAY - int(negative_trades))}\n"
+        f"  • Negative trades: {negative_trades}\n"
+        f"Trading Frequency: {TRADING_FREQ_MINUTES} minutes\n\n"
         "<b>📊 Profit Ranges:</b>\n"
         f"Daily Profit Range: {daily_min}% - {daily_max}%\n"
         f"Trade Profit Range: {trade_min}% - {trade_max}%\n"
