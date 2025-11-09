@@ -1711,40 +1711,48 @@ async def daily_summary_job():
                 # Get user language for translated message
                 lang = user.preferred_language or 'en'
                 
+                # Get total profit for display
+                total_profit = float(user.total_profit or 0.0)
+                
                 # Daily summary translations
                 summary_translations = {
                     'en': {
                         'title': '📊 Trading work for today is completed.',
-                        'total_profit': '💹 Total profit amounted to',
-                        'profit_amount': '💰 Profit amount',
-                        'total_balance': '📈 Total balance'
+                        'daily_profit_pct': '💹 Daily profit',
+                        'today_profit': '💰 Today\'s profit',
+                        'available_balance': '💵 Available balance',
+                        'total_profit': '📈 Total profit'
                     },
                     'fr': {
                         'title': '📊 Le travail de trading d\'aujourd\'hui est terminé.',
-                        'total_profit': '💹 Le profit total s\'élève à',
-                        'profit_amount': '💰 Montant du profit',
-                        'total_balance': '📈 Solde total'
+                        'daily_profit_pct': '💹 Profit quotidien',
+                        'today_profit': '💰 Profit d\'aujourd\'hui',
+                        'available_balance': '💵 Solde disponible',
+                        'total_profit': '📈 Profit total'
                     },
                     'es': {
                         'title': '📊 El trabajo de trading de hoy se ha completado.',
-                        'total_profit': '💹 La ganancia total ascendió a',
-                        'profit_amount': '💰 Monto de ganancia',
-                        'total_balance': '📈 Saldo total'
+                        'daily_profit_pct': '💹 Ganancia diaria',
+                        'today_profit': '💰 Ganancia de hoy',
+                        'available_balance': '💵 Saldo disponible',
+                        'total_profit': '📈 Ganancia total'
                     },
                     'ar': {
                         'title': '📊 اكتمل عمل التداول لهذا اليوم.',
-                        'total_profit': '💹 بلغ إجمالي الربح',
-                        'profit_amount': '💰 مبلغ الربح',
-                        'total_balance': '📈 الرصيد الإجمالي'
+                        'daily_profit_pct': '💹 الربح اليومي',
+                        'today_profit': '💰 ربح اليوم',
+                        'available_balance': '💵 الرصيد المتاح',
+                        'total_profit': '📈 إجمالي الربح'
                     }
                 }
                 
                 t = summary_translations.get(lang, summary_translations['en'])
                 summary_text = (
                     f"{t['title']}\n"
-                    f"{t['total_profit']} {daily_percent:.2f}%\n"
-                    f"{t['profit_amount']}: {daily_profit:.2f} USDT\n"
-                    f"{t['total_balance']}: {balance:.2f} USDT"
+                    f"{t['daily_profit_pct']}: {daily_percent:.2f}%\n"
+                    f"{t['today_profit']}: {daily_profit:.2f} USDT\n"
+                    f"{t['available_balance']}: {balance:.2f} USDT\n"
+                    f"{t['total_profit']}: {total_profit:.2f} USDT"
                 )
                 
                 # Send summary to user (check if they have muted daily summaries)
