@@ -1382,26 +1382,11 @@ def format_price(value: float, decimals: int = 12) -> str:
         return f"{value:.{decimals}f}"
 
 # -----------------------
-# DAILY PROFIT JOB (unchanged)
+# DAILY PROFIT JOB (removed)
 # -----------------------
-async def daily_profit_job():
-    PROFIT_RATE = 0.015
-    async with async_session() as session:
-        result = await session.execute(select(User))
-        users = result.scalars().all()
-        for user in users:
-            try:
-                total = float(user.balance or 0) + float(user.balance_in_process or 0)
-                if total <= 0:
-                    continue
-                profit = round(total * PROFIT_RATE, 2)
-                new_balance = float(user.balance or 0) + profit
-                new_total_profit = float(user.total_profit or 0) + profit
-                await update_user(session, user.id, balance=new_balance, daily_profit=profit, total_profit=new_total_profit)
-                await log_transaction(session, user_id=user.id, ref=None, type='profit', amount=profit, status='credited', proof='', wallet='', network='', created_at=datetime.utcnow())
-                logger.info("Credited daily profit %.2f to user %s", profit, user.id)
-            except Exception:
-                logger.exception("daily_profit_job: failed for user %s", getattr(user, "id", "<unknown>"))
+# NOTE: daily_profit_job has been removed as it was incorrectly giving users profit before trades happened.
+# Daily profit should only accumulate from actual trades executed by trading_job.
+# daily_profit is reset to 0 at the end of each day by daily_summary_job.
 
 # -----------------------
 # Price simulation (in-memory)
@@ -5052,9 +5037,6 @@ def main():
         _scheduler = AsyncIOScheduler(event_loop=loop)
     except TypeError:
         _scheduler = AsyncIOScheduler()
-    # daily profit reset at midnight UTC
-    _scheduler.add_job(daily_profit_job, 'cron', hour=0, minute=0)
-    
     # Calculate daily summary time: 40 minutes after last expected trade
     # Get trading hours from defaults (can be overridden in DB)
     # Last trade time = start_hour + (trades-1) * interval_minutes
