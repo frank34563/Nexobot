@@ -4075,6 +4075,44 @@ async def cmd_send_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as e:
         await update.effective_message.reply_text(f"Error sending reminders: {str(e)}")
 
+async def cmd_reset_daily_profit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin command: /reset_daily_profit - Reset all users' daily_profit to 0"""
+    user_id = update.effective_user.id
+    if not _is_admin(user_id):
+        await update.effective_message.reply_text("Forbidden: admin only.")
+        return
+    
+    try:
+        async with async_session() as session:
+            # Get all users
+            result = await session.execute(select(User))
+            users = result.scalars().all()
+            
+            if not users:
+                await update.effective_message.reply_text("No users found in database.")
+                return
+            
+            # Reset daily_profit for all users
+            reset_count = 0
+            for user in users:
+                if float(user.daily_profit or 0.0) != 0.0:
+                    await update_user(session, user.id, daily_profit=0.0)
+                    reset_count += 1
+            
+            await session.commit()
+        
+        await update.effective_message.reply_text(
+            f"✅ Daily profit reset complete!\n\n"
+            f"📊 Total users: {len(users)}\n"
+            f"♻️ Reset: {reset_count} users\n"
+            f"➖ Already at $0: {len(users) - reset_count} users\n\n"
+            f"All users can now trade with full 1.50% daily capacity."
+        )
+        await post_admin_log(context.bot, f"Admin reset daily_profit for {reset_count} users")
+    except Exception as e:
+        logger.exception("Error in cmd_reset_daily_profit")
+        await update.effective_message.reply_text(f"Error resetting daily profit: {str(e)}")
+
 async def cmd_set_deposit_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin command: /set_deposit_wallet <coin> <network> <address> [primary]"""
     user_id = update.effective_user.id
@@ -4261,7 +4299,8 @@ async def cmd_admin_cmds(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/error_logs - View recent errors\n"
         "/check_notifications - Check notification system status\n"
         "/user_trade_status - Show detailed trade status per user\n"
-        "/send_reminders - Send reminders for old pending txs\n\n"
+        "/send_reminders - Send reminders for old pending txs\n"
+        "/reset_daily_profit - Reset all users' daily profit to $0\n\n"
         "**Admin:**\n"
         "/admin_cmds - Show this message\n"
         "/pending - Show pending transactions"
@@ -5001,6 +5040,7 @@ def main():
     application.add_handler(CommandHandler("check_notifications", cmd_check_notifications))
     application.add_handler(CommandHandler("user_trade_status", cmd_user_trade_status))
     application.add_handler(CommandHandler("send_reminders", cmd_send_reminders))
+    application.add_handler(CommandHandler("reset_daily_profit", cmd_reset_daily_profit))
     
     # User stats command
     application.add_handler(CommandHandler("stats", stats_command))
