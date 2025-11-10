@@ -2916,7 +2916,7 @@ async def cmd_trading_status(update: Update, context: ContextTypes.DEFAULT_TYPE)
         f"💹 Global daily percent: {daily_min}% to {daily_max}%\n"
         f"📈 Global trade percent: {trade_min}% to {trade_max}%\n"
         f"📉 Negative trades per day: {negative_trades} (loss: -0.05% to -0.25%)\n"
-        f"🪙 Trading pairs: Random from 20 diverse coins\n"
+        f"🪙 Trading pairs: Random from {len(TRADING_PAIRS)} diverse coins\n"
         f"👤 User overrides: {override_count}"
         f"{override_text}"
     )
