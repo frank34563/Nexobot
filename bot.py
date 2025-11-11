@@ -4833,7 +4833,8 @@ async def cmd_admin_cmds(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "**Admin:**\n"
         "/admin_cmds - Show this message\n"
         "/pending - Show pending transactions\n"
-        "/list_users [page] - List all users with details"
+        "/list_users [page] - List all users with details\n"
+        "/credit_user <user_id> <amount> [reason] - Manually credit user balance"
     )
     
     await update.effective_message.reply_text(commands_text)
@@ -4919,6 +4920,121 @@ async def cmd_list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.exception("Error in cmd_list_users")
         await update.effective_message.reply_text(f"Error listing users: {str(e)}")
+
+async def cmd_credit_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin command: /credit_user <user_id> <amount> [reason] - Manually credit a user's balance"""
+    user_id = update.effective_user.id
+    if not _is_admin(user_id):
+        await update.effective_message.reply_text("Forbidden: admin only.")
+        return
+    
+    try:
+        args = context.args if hasattr(context, 'args') and context.args else []
+        
+        # Check arguments
+        if len(args) < 2:
+            await update.effective_message.reply_text(
+                "Usage: /credit_user <user_id> <amount> [reason]\n\n"
+                "Examples:\n"
+                "• <code>/credit_user 123456789 100</code>\n"
+                "• <code>/credit_user 123456789 50.50 Compensation for issue</code>\n\n"
+                "This will add the specified amount to the user's balance.",
+                parse_mode="HTML"
+            )
+            return
+        
+        # Parse user_id
+        try:
+            target_user_id = int(args[0])
+        except ValueError:
+            await update.effective_message.reply_text("❌ Invalid user_id. Must be a number.")
+            return
+        
+        # Parse amount
+        try:
+            amount = float(args[1])
+            if amount <= 0:
+                await update.effective_message.reply_text("❌ Amount must be greater than 0.")
+                return
+            amount = round(amount, 2)
+        except ValueError:
+            await update.effective_message.reply_text("❌ Invalid amount. Must be a number.")
+            return
+        
+        # Get reason (optional)
+        reason = " ".join(args[2:]) if len(args) > 2 else "Manual credit by admin"
+        
+        # Credit the user
+        async with async_session() as session:
+            # Check if user exists
+            user = await get_user(session, target_user_id)
+            if not user:
+                await update.effective_message.reply_text(f"❌ User {target_user_id} not found.")
+                return
+            
+            # Get current balance
+            old_balance = float(user.get('balance', 0))
+            new_balance = old_balance + amount
+            
+            # Update user balance
+            await update_user(session, target_user_id, balance=new_balance)
+            
+            # Log the transaction
+            tx_id, tx_ref = await log_transaction(
+                session,
+                user_id=target_user_id,
+                type='credit',
+                amount=amount,
+                status='credited',
+                proof=f'Manual credit by admin {user_id}: {reason}',
+                wallet='',
+                network='',
+                created_at=datetime.utcnow()
+            )
+        
+        # Send confirmation to admin
+        admin_msg = (
+            f"✅ <b>User Credited Successfully</b>\n\n"
+            f"<b>User ID:</b> <code>{target_user_id}</code>\n"
+            f"<b>Amount:</b> ${amount:.2f}\n"
+            f"<b>Reason:</b> {reason}\n"
+            f"<b>Transaction ID:</b> C-{tx_ref}\n\n"
+            f"<b>Balance Update:</b>\n"
+            f"Previous: ${old_balance:.2f}\n"
+            f"New: ${new_balance:.2f}"
+        )
+        await update.effective_message.reply_text(admin_msg, parse_mode="HTML")
+        
+        # Notify the user
+        try:
+            user_msg = (
+                f"💰 <b>Credit Received!</b>\n\n"
+                f"Amount: <b>${amount:.2f}</b>\n"
+                f"Reason: {reason}\n"
+                f"Transaction ID: C-{tx_ref}\n\n"
+                f"Your new balance: <b>${new_balance:.2f}</b>"
+            )
+            await context.application.bot.send_message(
+                chat_id=target_user_id,
+                text=user_msg,
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.warning(f"Could not notify user {target_user_id}: {e}")
+            await update.effective_message.reply_text(
+                "⚠️ User credited but notification failed. User might have blocked the bot.",
+                parse_mode="HTML"
+            )
+        
+        # Log to admin channel
+        await post_admin_log(
+            context.application.bot,
+            f"Admin {user_id} credited user {target_user_id} with ${amount:.2f}. Reason: {reason}"
+        )
+        
+    except Exception as e:
+        logger.exception("Error in cmd_credit_user")
+        await update.effective_message.reply_text(f"❌ Error crediting user: {str(e)}")
 
 async def cmd_list_trading_vars(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin command: /list_trading_vars - List all trading configuration variables"""
@@ -5718,6 +5834,7 @@ def main():
     # Admin helper commands
     application.add_handler(CommandHandler("admin_cmds", cmd_admin_cmds))
     application.add_handler(CommandHandler("list_users", cmd_list_users))
+    application.add_handler(CommandHandler("credit_user", cmd_credit_user))
     application.add_handler(CommandHandler("list_trading_vars", cmd_list_trading_vars))
 
     application.add_handler(MessageHandler(filters.Regex("^Balance$"), balance_text_handler))
