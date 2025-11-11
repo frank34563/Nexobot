@@ -3860,6 +3860,11 @@ async def handle_broadcast_media(update: Update, context: ContextTypes.DEFAULT_T
     """Handle media uploads for broadcast creation"""
     user_id = update.effective_user.id
     
+    # Skip if user is in an active invest/withdraw conversation
+    # Check for conversation state markers in user_data
+    if any(key in context.user_data for key in ['invest_amount', 'invest_proof', 'withdraw_amount', 'withdraw_wallet']):
+        return
+    
     # Only handle if admin AND awaiting broadcast media
     # This allows conversation handlers to process photos first
     if not _is_admin(user_id):
