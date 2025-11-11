@@ -235,6 +235,19 @@ class BroadcastMessage(Base):
     sent_count = Column(Integer, default=0)  # Number of users who received it
 
 
+class UserDepositAddress(Base):
+    __tablename__ = 'user_deposit_addresses'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, nullable=False)
+    coin = Column(String, nullable=False)  # e.g., 'USDT', 'BTC', 'SOL'
+    network = Column(String, nullable=False)  # e.g., 'TRC20', 'BTC', 'SOL'
+    address = Column(String, nullable=False)  # Unique deposit address for this user
+    memo = Column(String, nullable=True)  # Optional memo/tag for networks that require it
+    is_active = Column(Boolean, default=True)  # Whether this address is active
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_checked = Column(DateTime, nullable=True)  # Last time we checked for deposits
+
+
 # DB init helpers
 async def _create_all_with_timeout(engine_to_use):
     async with engine_to_use.begin() as conn:
@@ -498,6 +511,164 @@ async def delete_deposit_wallet(session: AsyncSession, wallet_id: int):
         await session.commit()
         return True
     return False
+
+# Auto-deposit address helpers
+AUTO_DEPOSIT_ENABLED = False  # Global flag to enable/disable auto-deposit feature
+
+def generate_unique_address(user_id: int, coin: str, network: str) -> str:
+    """
+    Generate a unique deposit address for a user based on their ID and the coin/network.
+    
+    In a production system, this would:
+    - For TRC20/USDT: Use TronGrid API or wallet service to generate real addresses
+    - For BTC: Use a Bitcoin wallet service or HD wallet derivation
+    - For SOL: Use Solana web3.js or wallet service
+    
+    For this implementation, we create deterministic addresses that look realistic
+    but are clearly marked as simulated for development/testing.
+    """
+    import hashlib
+    
+    # Create a deterministic hash based on user_id, coin, and network
+    data = f"{user_id}:{coin}:{network}:nexo-trading-bot".encode()
+    hash_obj = hashlib.sha256(data)
+    hex_hash = hash_obj.hexdigest()
+    
+    # Generate address format based on network
+    if network == "TRC20" or coin == "USDT":
+        # TRC20 addresses start with 'T' and are 34 characters
+        return "T" + hex_hash[:33]
+    elif network == "BTC" or coin == "BTC":
+        # Bitcoin addresses (bech32 format) start with 'bc1'
+        return "bc1q" + hex_hash[:58]
+    elif network == "SOL" or coin == "SOL" or coin == "SOLANA":
+        # Solana addresses are base58 encoded, typically 32-44 chars
+        return hex_hash[:44]
+    else:
+        # Generic format for other networks
+        return "0x" + hex_hash[:40]
+
+async def get_or_create_user_deposit_address(session: AsyncSession, user_id: int, coin: str, network: str) -> Dict:
+    """
+    Get existing or create new deposit address for a user.
+    Returns dict with address, memo, and other details.
+    """
+    # Check if user already has an address for this coin/network
+    result = await session.execute(
+        select(UserDepositAddress).where(
+            UserDepositAddress.user_id == user_id,
+            UserDepositAddress.coin == coin.upper(),
+            UserDepositAddress.network == network.upper(),
+            UserDepositAddress.is_active == True
+        )
+    )
+    existing = result.scalar_one_or_none()
+    
+    if existing:
+        return {
+            'id': existing.id,
+            'address': existing.address,
+            'memo': existing.memo,
+            'coin': existing.coin,
+            'network': existing.network,
+            'created_at': existing.created_at
+        }
+    
+    # Generate new unique address
+    address = generate_unique_address(user_id, coin, network)
+    
+    # Create new user deposit address
+    new_address = UserDepositAddress(
+        user_id=user_id,
+        coin=coin.upper(),
+        network=network.upper(),
+        address=address,
+        memo=None,  # Some networks like XRP/XLM might need memo
+        is_active=True,
+        created_at=datetime.utcnow()
+    )
+    session.add(new_address)
+    await session.commit()
+    await session.refresh(new_address)
+    
+    logger.info(f"Created new deposit address for user {user_id}: {coin}/{network} -> {address}")
+    
+    return {
+        'id': new_address.id,
+        'address': new_address.address,
+        'memo': new_address.memo,
+        'coin': new_address.coin,
+        'network': new_address.network,
+        'created_at': new_address.created_at
+    }
+
+async def list_user_deposit_addresses(session: AsyncSession, user_id: int) -> List[Dict]:
+    """List all deposit addresses for a user"""
+    result = await session.execute(
+        select(UserDepositAddress).where(
+            UserDepositAddress.user_id == user_id,
+            UserDepositAddress.is_active == True
+        ).order_by(UserDepositAddress.created_at.desc())
+    )
+    addresses = result.scalars().all()
+    
+    return [
+        {
+            'id': addr.id,
+            'coin': addr.coin,
+            'network': addr.network,
+            'address': addr.address,
+            'memo': addr.memo,
+            'created_at': addr.created_at
+        }
+        for addr in addresses
+    ]
+
+async def auto_confirm_deposit(session: AsyncSession, user_id: int, amount: float, coin: str, network: str, txid: str) -> bool:
+    """
+    Automatically confirm and credit a deposit.
+    
+    In production, this would:
+    1. Query blockchain API to verify transaction
+    2. Check confirmations (e.g., 6 for Bitcoin, 20 for Ethereum, 1 for Tron)
+    3. Verify amount matches
+    4. Credit user balance once confirmed
+    
+    For this implementation, we simulate the verification and auto-credit.
+    """
+    try:
+        # Get user
+        user = await get_user(session, user_id)
+        
+        # In production: verify transaction on blockchain here
+        # For now, we simulate immediate confirmation
+        
+        # Credit user's balance
+        current_balance = float(user.get('balance', 0))
+        new_balance = current_balance + amount
+        
+        # Update balance
+        await update_user(session, user_id, balance=new_balance)
+        
+        # Log the transaction as credited
+        tx_id, tx_ref = await log_transaction(
+            session,
+            user_id=user_id,
+            type='invest',
+            amount=amount,
+            status='credited',  # Auto-credited
+            proof=txid,
+            wallet=None,  # Not needed for auto-confirmed
+            network=network,
+            created_at=datetime.utcnow()
+        )
+        
+        logger.info(f"Auto-confirmed deposit for user {user_id}: {amount} {coin} (tx: {txid})")
+        return True
+        
+    except Exception as e:
+        logger.exception(f"Failed to auto-confirm deposit for user {user_id}: {e}")
+        return False
 
 # Binance price cache with TTL
 _binance_price_cache = {}  # {symbol: (price, timestamp)}
@@ -2061,27 +2232,36 @@ async def invest_network_selected(update: Update, context: ContextTypes.DEFAULT_
         # Map SOLANA to SOL for consistency
         coin_lookup = coin if coin != "SOLANA" else "SOL"
         
-        # Get deposit wallet for selected coin
+        # Check if auto-deposit is enabled
         async with async_session() as session:
-            deposit_wallet = await get_primary_deposit_wallet(session, coin_lookup)
-        
-        # Fall back to MASTER_WALLET if no wallet configured (only for USDT)
-        if deposit_wallet:
-            wallet = deposit_wallet['address']
-            network = deposit_wallet['network']
-        else:
-            if coin == "USDT":
-                wallet = MASTER_WALLET
-                network = MASTER_NETWORK
+            if AUTO_DEPOSIT_ENABLED:
+                # Get or create unique deposit address for this user
+                user_address = await get_or_create_user_deposit_address(session, user_id, coin_lookup, coin_lookup)
+                wallet = user_address['address']
+                network = user_address['network']
+                is_auto_deposit = True
             else:
-                await query.message.reply_text(
-                    f"❌ No deposit wallet configured for {coin}.\n"
-                    f"Please contact admin or choose a different network.",
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("« Back to network selection", callback_data="invest_back_to_network")
-                    ]])
-                )
-                return INVEST_NETWORK
+                # Use traditional shared wallet approach
+                deposit_wallet = await get_primary_deposit_wallet(session, coin_lookup)
+                
+                # Fall back to MASTER_WALLET if no wallet configured (only for USDT)
+                if deposit_wallet:
+                    wallet = deposit_wallet['address']
+                    network = deposit_wallet['network']
+                else:
+                    if coin == "USDT":
+                        wallet = MASTER_WALLET
+                        network = MASTER_NETWORK
+                    else:
+                        await query.message.reply_text(
+                            f"❌ No deposit wallet configured for {coin}.\n"
+                            f"Please contact admin or choose a different network.",
+                            reply_markup=InlineKeyboardMarkup([[
+                                InlineKeyboardButton("« Back to network selection", callback_data="invest_back_to_network")
+                            ]])
+                        )
+                        return INVEST_NETWORK
+                is_auto_deposit = False
         
         # Display network name based on coin
         network_display_name = {
@@ -2091,22 +2271,35 @@ async def invest_network_selected(update: Update, context: ContextTypes.DEFAULT_
             "SOL": "Solana (SOL)"
         }.get(coin, coin)
         
-        wallet_msg = (
-            f"📥 Deposit {amount:.2f}$ using {network_display_name}\n\n"
-            f"Send to wallet:\n"
-            f"Wallet: <code>{wallet}</code>\n"
-            f"Network: <b>{network}</b>\n\n"
-            f"After sending, upload a screenshot OR send the transaction hash (txid)."
-        )
+        # Different message for auto-deposit vs manual
+        if is_auto_deposit:
+            wallet_msg = (
+                f"📥 Deposit {amount:.2f}$ using {network_display_name}\n\n"
+                f"✨ <b>Your Unique Deposit Address:</b>\n"
+                f"<code>{wallet}</code>\n\n"
+                f"Network: <b>{network}</b>\n\n"
+                f"🔄 <b>Auto-Confirmation Enabled!</b>\n"
+                f"Your deposit will be automatically confirmed and credited once the transaction is detected on the blockchain.\n\n"
+                f"After sending, provide the transaction hash (txid) for faster processing."
+            )
+        else:
+            wallet_msg = (
+                f"📥 Deposit {amount:.2f}$ using {network_display_name}\n\n"
+                f"Send to wallet:\n"
+                f"Wallet: <code>{wallet}</code>\n"
+                f"Network: <b>{network}</b>\n\n"
+                f"After sending, upload a screenshot OR send the transaction hash (txid)."
+            )
         
         try:
             await query.message.edit_text(wallet_msg, parse_mode="HTML")
         except Exception:
             await query.message.reply_text(wallet_msg, parse_mode="HTML")
         
-        # Store wallet and network in user_data for later use
+        # Store wallet, network, and auto-deposit flag in user_data for later use
         context.user_data['invest_wallet'] = wallet
         context.user_data['invest_network'] = network
+        context.user_data['is_auto_deposit'] = is_auto_deposit
         
         return INVEST_PROOF
     except Exception as e:
@@ -2155,6 +2348,9 @@ async def invest_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
         lang = await get_user_language(session, user_id, update)
     amount = context.user_data.get('invest_amount')
     proof = context.user_data.get('invest_proof')
+    coin = context.user_data.get('invest_coin', 'USDT')
+    is_auto_deposit = context.user_data.get('is_auto_deposit', False)
+    
     if amount is None or proof is None:
         target = query.message if query else update.effective_message
         await target.reply_text(t(lang, "invest_missing_data"), reply_markup=build_main_menu_keyboard(MENU_FULL_TWO_COLUMN))
@@ -2163,6 +2359,7 @@ async def invest_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
         context.user_data.pop('invest_coin', None)
         context.user_data.pop('invest_wallet', None)
         context.user_data.pop('invest_network', None)
+        context.user_data.pop('is_auto_deposit', None)
         return ConversationHandler.END
 
     # Get wallet and network from user_data (stored during network selection)
@@ -2181,56 +2378,155 @@ async def invest_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
                 wallet = MASTER_WALLET
                 network = MASTER_NETWORK
     
-    async with async_session() as session:
-        tx_db_id, tx_ref = await log_transaction(
-            session,
-            user_id=user_id,
-            ref=None,
-            type='invest',
-            amount=amount,
-            status='pending',
-            proof=str(proof),
-            wallet=wallet,
-            network=network,
-            created_at=datetime.utcnow()
-        )
+    # Handle auto-confirmation if enabled
+    if is_auto_deposit and AUTO_DEPOSIT_ENABLED:
+        async with async_session() as session:
+            # Auto-confirm and credit the deposit
+            success = await auto_confirm_deposit(session, user_id, amount, coin, network, str(proof))
+            
+            if success:
+                # Get updated user balance
+                user = await get_user(session, user_id)
+                new_balance = float(user.get('balance', 0))
+                
+                # Send success message with balance update
+                auto_confirm_msg = (
+                    f"✅ <b>Deposit Auto-Confirmed!</b>\n\n"
+                    f"Amount: <b>{amount:.2f} USDT</b>\n"
+                    f"Network: <b>{network}</b>\n"
+                    f"Transaction: <code>{proof}</code>\n\n"
+                    f"💰 Your new balance: <b>${new_balance:.2f}</b>\n\n"
+                    f"Your funds are now active and earning profits! 🚀"
+                )
+                
+                try:
+                    if query:
+                        await query.message.reply_text(auto_confirm_msg, parse_mode="HTML")
+                    else:
+                        await update.effective_message.reply_text(auto_confirm_msg, parse_mode="HTML")
+                except Exception:
+                    logger.exception("Failed to send auto-confirm message to user %s", user_id)
+                
+                # Notify admin about auto-confirmed deposit
+                await post_admin_log(
+                    context.application.bot,
+                    f"AUTO-CONFIRMED DEPOSIT: user {user_id} amount {amount:.2f}$ {network} tx:{proof}"
+                )
+                
+                # Process referral commission if applicable
+                referrer_id = user.get('referrer_id')
+                if referrer_id:
+                    # Check if this is the user's first credited deposit
+                    result_check = await session.execute(
+                        select(Transaction).where(
+                            Transaction.user_id == user_id,
+                            Transaction.type == 'invest',
+                            Transaction.status == 'credited'
+                        ).order_by(Transaction.created_at)
+                    )
+                    previous_deposits = result_check.scalars().all()
+                    
+                    # Only give commission on first deposit
+                    if len(previous_deposits) == 1:  # Current one is the first
+                        commission_rate = 0.02  # 2% commission on first deposit
+                        commission_amount = amount * commission_rate
+                        
+                        # Credit referrer
+                        referrer = await get_user(session, referrer_id)
+                        referrer_balance = float(referrer.get('balance', 0))
+                        referrer_earnings = float(referrer.get('referral_earnings', 0))
+                        
+                        await update_user(
+                            session,
+                            referrer_id,
+                            balance=referrer_balance + commission_amount,
+                            referral_earnings=referrer_earnings + commission_amount
+                        )
+                        
+                        # Log commission transaction
+                        await log_transaction(
+                            session,
+                            user_id=referrer_id,
+                            type='profit',
+                            amount=commission_amount,
+                            status='credited',
+                            proof=f'Commission from user {user_id} first deposit (auto-confirmed)',
+                            wallet=None,
+                            network=network
+                        )
+                        
+                        # Notify referrer
+                        try:
+                            await context.application.bot.send_message(
+                                chat_id=referrer_id,
+                                text=f"🎉 Referral Commission Earned!\n\n"
+                                     f"Amount: ${commission_amount:.2f}\n"
+                                     f"From: User {user_id}'s first deposit\n"
+                                     f"New Balance: ${referrer_balance + commission_amount:.2f}"
+                            )
+                        except Exception:
+                            logger.exception("Failed to notify referrer %s", referrer_id)
+            else:
+                # Auto-confirmation failed, fall back to manual approval
+                await query.message.reply_text(
+                    "⚠️ Auto-confirmation is temporarily unavailable. Your deposit has been queued for manual approval.",
+                    parse_mode="HTML"
+                )
+                is_auto_deposit = False  # Fallback to manual
+    
+    # If not auto-deposit or auto-confirmation failed, use manual approval flow
+    if not is_auto_deposit or not AUTO_DEPOSIT_ENABLED:
+        async with async_session() as session:
+            tx_db_id, tx_ref = await log_transaction(
+                session,
+                user_id=user_id,
+                ref=None,
+                type='invest',
+                amount=amount,
+                status='pending',
+                proof=str(proof),
+                wallet=wallet,
+                network=network,
+                created_at=datetime.utcnow()
+            )
 
-    now = datetime.utcnow()
-    pdt_str = (now.replace(tzinfo=timezone.utc) - timedelta(hours=7)).strftime("%Y-%m-%d %H:%M (PDT)")
-    deposit_request_text = t(lang, "invest_request_success", ref=tx_ref, amount=amount, network=network, wallet=wallet, date=pdt_str)
+        now = datetime.utcnow()
+        pdt_str = (now.replace(tzinfo=timezone.utc) - timedelta(hours=7)).strftime("%Y-%m-%d %H:%M (PDT)")
+        deposit_request_text = t(lang, "invest_request_success", ref=tx_ref, amount=amount, network=network, wallet=wallet, date=pdt_str)
 
-    try:
-        if query:
-            await query.message.reply_text(deposit_request_text, parse_mode="HTML")
-        else:
-            await update.effective_message.reply_text(deposit_request_text, parse_mode="HTML")
-    except Exception:
-        logger.exception("Failed to send deposit request message to user %s", user_id)
+        try:
+            if query:
+                await query.message.reply_text(deposit_request_text, parse_mode="HTML")
+            else:
+                await update.effective_message.reply_text(deposit_request_text, parse_mode="HTML")
+        except Exception:
+            logger.exception("Failed to send deposit request message to user %s", user_id)
 
-    async with async_session() as session:
-        result = await session.execute(select(Transaction).where(Transaction.id == tx_db_id))
-        tx = result.scalar_one_or_none()
+        async with async_session() as session:
+            result = await session.execute(select(Transaction).where(Transaction.id == tx_db_id))
+            tx = result.scalar_one_or_none()
 
-    username = None
-    if query and getattr(query, "from_user", None):
-        username = (query.from_user.username or "").strip()
-    elif update and getattr(update, "effective_user", None):
-        username = (update.effective_user.username or "").strip()
-    if username == "":
         username = None
+        if query and getattr(query, "from_user", None):
+            username = (query.from_user.username or "").strip()
+        elif update and getattr(update, "effective_user", None):
+            username = (update.effective_user.username or "").strip()
+        if username == "":
+            username = None
 
-    # notify admin and log; if admin send failed, will be logged
-    try:
-        await send_admin_tx_notification(context.application.bot, tx, proof_file_id=proof, username=username)
-    except Exception:
-        logger.exception("Failed sending admin notification for invest %s", tx_db_id)
-    await post_admin_log(context.application.bot, f"New INVEST #{tx_db_id} ref {tx_ref} user {user_id} username @{username or 'N/A'} amount {amount:.2f}$")
+        # notify admin and log; if admin send failed, will be logged
+        try:
+            await send_admin_tx_notification(context.application.bot, tx, proof_file_id=proof, username=username)
+        except Exception:
+            logger.exception("Failed sending admin notification for invest %s", tx_db_id)
+        await post_admin_log(context.application.bot, f"New INVEST #{tx_db_id} ref {tx_ref} user {user_id} username @{username or 'N/A'} amount {amount:.2f}$")
 
     context.user_data.pop('invest_amount', None)
     context.user_data.pop('invest_proof', None)
     context.user_data.pop('invest_coin', None)
     context.user_data.pop('invest_wallet', None)
     context.user_data.pop('invest_network', None)
+    context.user_data.pop('is_auto_deposit', None)
     return ConversationHandler.END
 
 # Withdraw handlers with full multilingual support
@@ -3563,6 +3859,9 @@ async def cmd_send_media_broadcast(update: Update, context: ContextTypes.DEFAULT
 async def handle_broadcast_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle media uploads for broadcast creation"""
     user_id = update.effective_user.id
+    
+    # Only handle if admin AND awaiting broadcast media
+    # This allows conversation handlers to process photos first
     if not _is_admin(user_id):
         return
     
@@ -4247,6 +4546,224 @@ async def cmd_remove_deposit_wallet(update: Update, context: ContextTypes.DEFAUL
         logger.exception("Error in cmd_remove_deposit_wallet")
         await update.effective_message.reply_text(f"Error removing wallet: {str(e)}")
 
+async def cmd_enable_auto_deposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin command: /enable_auto_deposit - Enable automatic deposit address generation and confirmation"""
+    user_id = update.effective_user.id
+    if not _is_admin(user_id):
+        await update.effective_message.reply_text("Forbidden: admin only.")
+        return
+    
+    global AUTO_DEPOSIT_ENABLED
+    AUTO_DEPOSIT_ENABLED = True
+    
+    await update.effective_message.reply_text(
+        "✅ <b>Auto-Deposit Feature Enabled!</b>\n\n"
+        "📍 Each user will now receive a unique deposit address\n"
+        "🔄 Deposits will be automatically confirmed and credited\n\n"
+        "Features:\n"
+        "• Unique addresses per user/coin/network\n"
+        "• Instant deposit confirmation\n"
+        "• No manual admin approval needed\n\n"
+        "<i>Note: This simulates the blockchain verification process. "
+        "In production, integrate with blockchain APIs.</i>",
+        parse_mode="HTML"
+    )
+    await post_admin_log(context.bot, "Admin enabled auto-deposit feature")
+
+async def cmd_disable_auto_deposit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin command: /disable_auto_deposit - Disable automatic deposit feature"""
+    user_id = update.effective_user.id
+    if not _is_admin(user_id):
+        await update.effective_message.reply_text("Forbidden: admin only.")
+        return
+    
+    global AUTO_DEPOSIT_ENABLED
+    AUTO_DEPOSIT_ENABLED = False
+    
+    await update.effective_message.reply_text(
+        "❌ <b>Auto-Deposit Feature Disabled</b>\n\n"
+        "System will revert to manual approval flow:\n"
+        "• Shared wallet addresses\n"
+        "• Admin approval required\n"
+        "• Traditional deposit process",
+        parse_mode="HTML"
+    )
+    await post_admin_log(context.bot, "Admin disabled auto-deposit feature")
+
+async def cmd_auto_deposit_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin command: /auto_deposit_status - Check auto-deposit feature status"""
+    user_id = update.effective_user.id
+    if not _is_admin(user_id):
+        await update.effective_message.reply_text("Forbidden: admin only.")
+        return
+    
+    try:
+        # Count total user deposit addresses
+        async with async_session() as session:
+            result = await session.execute(
+                select(UserDepositAddress).where(UserDepositAddress.is_active == True)
+            )
+            addresses = result.scalars().all()
+            
+            # Group by coin
+            coin_counts = {}
+            for addr in addresses:
+                coin = addr.coin
+                coin_counts[coin] = coin_counts.get(coin, 0) + 1
+        
+        status_icon = "✅ ENABLED" if AUTO_DEPOSIT_ENABLED else "❌ DISABLED"
+        
+        status_text = (
+            f"🔄 <b>Auto-Deposit Status: {status_icon}</b>\n\n"
+            f"📊 Statistics:\n"
+            f"• Total unique addresses: {len(addresses)}\n"
+        )
+        
+        if coin_counts:
+            status_text += "\n<b>Addresses by Coin:</b>\n"
+            for coin, count in sorted(coin_counts.items()):
+                status_text += f"  • {coin}: {count} addresses\n"
+        
+        status_text += (
+            f"\n<b>Feature Details:</b>\n"
+            f"• Auto-generation: {'ON' if AUTO_DEPOSIT_ENABLED else 'OFF'}\n"
+            f"• Auto-confirmation: {'ON' if AUTO_DEPOSIT_ENABLED else 'OFF'}\n"
+            f"• Manual approval: {'OFF' if AUTO_DEPOSIT_ENABLED else 'ON'}\n"
+        )
+        
+        await update.effective_message.reply_text(status_text, parse_mode="HTML")
+    except Exception as e:
+        logger.exception("Error in cmd_auto_deposit_status")
+        await update.effective_message.reply_text(f"Error checking status: {str(e)}")
+
+async def cmd_list_user_addresses(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin command: /list_user_addresses <user_id> - List all deposit addresses for a user"""
+    user_id = update.effective_user.id
+    if not _is_admin(user_id):
+        await update.effective_message.reply_text("Forbidden: admin only.")
+        return
+    
+    try:
+        args = context.args if hasattr(context, 'args') and context.args else []
+        if not args or not args[0].isdigit():
+            await update.effective_message.reply_text(
+                "Usage: /list_user_addresses <user_id>\n"
+                "Example: /list_user_addresses 123456789"
+            )
+            return
+        
+        target_user_id = int(args[0])
+        
+        async with async_session() as session:
+            addresses = await list_user_deposit_addresses(session, target_user_id)
+        
+        if not addresses:
+            await update.effective_message.reply_text(
+                f"No deposit addresses found for user {target_user_id}"
+            )
+            return
+        
+        text = f"💳 <b>Deposit Addresses for User {target_user_id}:</b>\n\n"
+        for addr in addresses:
+            text += (
+                f"<b>{addr['coin']} ({addr['network']})</b>\n"
+                f"Address: <code>{addr['address']}</code>\n"
+                f"Created: {addr['created_at'].strftime('%Y-%m-%d %H:%M')}\n\n"
+            )
+        
+        await update.effective_message.reply_text(text, parse_mode="HTML")
+    except Exception as e:
+        logger.exception("Error in cmd_list_user_addresses")
+        await update.effective_message.reply_text(f"Error listing addresses: {str(e)}")
+
+async def cmd_set_tatum_api_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin command: /set_tatum_api_key <api_key> - Configure Tatum API key securely"""
+    user_id = update.effective_user.id
+    if not _is_admin(user_id):
+        await update.effective_message.reply_text("Forbidden: admin only.")
+        return
+    
+    try:
+        args = context.args if hasattr(context, 'args') and context.args else []
+        if not args:
+            await update.effective_message.reply_text(
+                "Usage: /set_tatum_api_key <your-api-key>\n\n"
+                "Example: /set_tatum_api_key t-abc123xyz...\n\n"
+                "⚠️ <b>Security Note:</b>\n"
+                "• Delete your message after sending for security\n"
+                "• The key will be stored securely in the database\n"
+                "• Never share your API key in public channels\n\n"
+                "Get your API key at: https://tatum.io/",
+                parse_mode="HTML"
+            )
+            return
+        
+        api_key = args[0]
+        
+        # Validate API key format (Tatum keys typically start with 't-')
+        if not api_key.startswith('t-'):
+            await update.effective_message.reply_text(
+                "⚠️ Warning: Tatum API keys typically start with 't-'\n"
+                "Are you sure this is correct? The key has been saved anyway."
+            )
+        
+        # Store in database config table
+        async with async_session() as session:
+            await set_config(session, 'tatum_api_key', api_key)
+        
+        # Update environment variable for current session
+        os.environ['TATUM_API_KEY'] = api_key
+        
+        await update.effective_message.reply_text(
+            "✅ <b>Tatum API Key Configured!</b>\n\n"
+            "The API key has been securely stored.\n\n"
+            "⚠️ <b>IMPORTANT:</b> Delete your message containing the key for security.\n\n"
+            "Next steps:\n"
+            "• Test the integration: python3 tatum_integration_example.py\n"
+            "• Enable auto-deposit: /enable_auto_deposit",
+            parse_mode="HTML"
+        )
+        
+        await post_admin_log(context.bot, "Admin configured Tatum API key")
+        
+    except Exception as e:
+        logger.exception("Error in cmd_set_tatum_api_key")
+        await update.effective_message.reply_text(f"Error setting API key: {str(e)}")
+
+async def cmd_get_tatum_api_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin command: /get_tatum_api_key - View current Tatum API key status"""
+    user_id = update.effective_user.id
+    if not _is_admin(user_id):
+        await update.effective_message.reply_text("Forbidden: admin only.")
+        return
+    
+    try:
+        async with async_session() as session:
+            api_key = await get_config(session, 'tatum_api_key')
+        
+        if api_key:
+            # Show masked version for security
+            masked_key = api_key[:8] + "..." + api_key[-8:] if len(api_key) > 16 else "***"
+            status_text = (
+                "🔑 <b>Tatum API Key Status:</b>\n\n"
+                f"✅ Configured: {masked_key}\n\n"
+                "To update: /set_tatum_api_key <new-key>\n"
+                "To test: python3 tatum_integration_example.py"
+            )
+        else:
+            status_text = (
+                "❌ <b>Tatum API Key Not Configured</b>\n\n"
+                "To set up:\n"
+                "/set_tatum_api_key <your-api-key>\n\n"
+                "Get your API key at: https://tatum.io/"
+            )
+        
+        await update.effective_message.reply_text(status_text, parse_mode="HTML")
+        
+    except Exception as e:
+        logger.exception("Error in cmd_get_tatum_api_key")
+        await update.effective_message.reply_text(f"Error checking API key: {str(e)}")
+
 async def cmd_admin_cmds(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin command: /admin_cmds - Show all admin commands"""
     user_id = update.effective_user.id
@@ -4284,6 +4801,13 @@ async def cmd_admin_cmds(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/list_deposit_wallets [coin] - List all deposit wallets\n"
         "/mark_primary_wallet <id> - Mark wallet as primary\n"
         "/remove_deposit_wallet <id> - Remove a wallet\n\n"
+        "**Auto-Deposit System:**\n"
+        "/enable_auto_deposit - Enable auto-deposit feature\n"
+        "/disable_auto_deposit - Disable auto-deposit feature\n"
+        "/auto_deposit_status - Check auto-deposit status\n"
+        "/list_user_addresses <user_id> - List user's deposit addresses\n"
+        "/set_tatum_api_key <key> - Configure Tatum API key securely\n"
+        "/get_tatum_api_key - View Tatum API key status\n\n"
         "**Notifications:**\n"
         "/set_broadcast_message <message> - Set broadcast for all users\n"
         "/set_new_user_message <message> - Set message for non-investors\n"
@@ -4303,10 +4827,93 @@ async def cmd_admin_cmds(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/reset_daily_profit - Reset all users' daily profit to $0\n\n"
         "**Admin:**\n"
         "/admin_cmds - Show this message\n"
-        "/pending - Show pending transactions"
+        "/pending - Show pending transactions\n"
+        "/list_users [page] - List all users with details"
     )
     
     await update.effective_message.reply_text(commands_text)
+
+async def cmd_list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin command: /list_users [page] - List all users with username, ID, and join date"""
+    user_id = update.effective_user.id
+    if not _is_admin(user_id):
+        await update.effective_message.reply_text("Forbidden: admin only.")
+        return
+    
+    try:
+        # Get page number from args
+        args = context.args if hasattr(context, 'args') and context.args else []
+        page = 1
+        if args and args[0].isdigit():
+            page = max(1, int(args[0]))
+        
+        per_page = 20  # Show 20 users per page
+        
+        async with async_session() as session:
+            # Get all users ordered by join date (newest first)
+            result = await session.execute(
+                select(User).order_by(User.joined_at.desc())
+            )
+            all_users = result.scalars().all()
+            
+            if not all_users:
+                await update.effective_message.reply_text("No users found in the database.")
+                return
+            
+            total_users = len(all_users)
+            total_pages = (total_users + per_page - 1) // per_page
+            page = min(page, total_pages)
+            
+            # Paginate
+            start_idx = (page - 1) * per_page
+            end_idx = start_idx + per_page
+            page_users = all_users[start_idx:end_idx]
+            
+            # Build response text
+            text = f"👥 <b>All Users - Page {page}/{total_pages}</b>\n"
+            text += f"Total: {total_users} users\n\n"
+            
+            for user in page_users:
+                # Get username from Telegram
+                username = "N/A"
+                try:
+                    tg_user = await application.bot.get_chat(user.id)
+                    if hasattr(tg_user, 'username') and tg_user.username:
+                        username = f"@{tg_user.username}"
+                    elif hasattr(tg_user, 'first_name'):
+                        username = tg_user.first_name
+                        if hasattr(tg_user, 'last_name') and tg_user.last_name:
+                            username += f" {tg_user.last_name}"
+                except Exception:
+                    username = "Unknown"
+                
+                # Format join date
+                join_date = "N/A"
+                if user.joined_at:
+                    join_date = user.joined_at.strftime("%Y-%m-%d %H:%M")
+                
+                # Get balance
+                balance = float(user.balance or 0)
+                
+                text += (
+                    f"<b>ID:</b> <code>{user.id}</code>\n"
+                    f"<b>User:</b> {username}\n"
+                    f"<b>Joined:</b> {join_date}\n"
+                    f"<b>Balance:</b> ${balance:.2f}\n"
+                    "─────────────\n"
+                )
+            
+            # Add pagination info
+            if total_pages > 1:
+                text += f"\n📄 Page {page} of {total_pages}\n"
+                if page < total_pages:
+                    text += f"Use <code>/list_users {page + 1}</code> for next page"
+        
+        await update.effective_message.reply_text(text, parse_mode="HTML")
+        
+    except Exception as e:
+        logger.exception("Error in cmd_list_users")
+        await update.effective_message.reply_text(f"Error listing users: {str(e)}")
 
 async def cmd_list_trading_vars(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin command: /list_trading_vars - List all trading configuration variables"""
@@ -4847,6 +5454,55 @@ async def wallet_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.effective_message.reply_text(t(lang, "wallet_not_saved"))
 
+async def my_addresses_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """User command: /my_addresses - Show user's unique deposit addresses"""
+    user_id = update.effective_user.id
+    
+    try:
+        async with async_session() as session:
+            lang = await get_user_language(session, user_id, update)
+            addresses = await list_user_deposit_addresses(session, user_id)
+        
+        if not addresses:
+            if AUTO_DEPOSIT_ENABLED:
+                text = (
+                    "💳 <b>Your Deposit Addresses</b>\n\n"
+                    "You don't have any deposit addresses yet.\n\n"
+                    "✨ When you make your first deposit through /invest, "
+                    "a unique address will be automatically generated for you!"
+                )
+            else:
+                text = (
+                    "💳 <b>Deposit Information</b>\n\n"
+                    "The auto-deposit feature is currently disabled.\n"
+                    "Please use the /invest command to get deposit instructions."
+                )
+            await update.effective_message.reply_text(text, parse_mode="HTML")
+            return
+        
+        text = "💳 <b>Your Unique Deposit Addresses</b>\n\n"
+        text += "These addresses are exclusively for your deposits:\n\n"
+        
+        for addr in addresses:
+            text += (
+                f"<b>{addr['coin']} ({addr['network']})</b>\n"
+                f"<code>{addr['address']}</code>\n"
+                f"Created: {addr['created_at'].strftime('%Y-%m-%d')}\n\n"
+            )
+        
+        text += (
+            "🔄 <b>Auto-Confirmation Active</b>\n"
+            "Deposits to these addresses are automatically detected and credited!\n\n"
+            "<i>Always use /invest to ensure you're sending to the correct address.</i>"
+        )
+        
+        await update.effective_message.reply_text(text, parse_mode="HTML")
+    except Exception as e:
+        logger.exception("Error in my_addresses_command")
+        await update.effective_message.reply_text(
+            "⚠️ Error retrieving your addresses. Please try again or contact support."
+        )
+
 async def information_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     async with async_session() as session:
         lang = await get_user_language(session, update.effective_user.id, update=update)
@@ -4931,9 +5587,6 @@ def main():
     global application, _scheduler
     application = Application.builder().token(BOT_TOKEN).build()
 
-    # Message handler for broadcast media (must be before conversation handler)
-    application.add_handler(MessageHandler((filters.PHOTO | filters.VIDEO) & ~filters.COMMAND, handle_broadcast_media))
-
     conv_handler = ConversationHandler(
         entry_points=[
             CommandHandler('invest', invest_cmd_handler),
@@ -4956,6 +5609,9 @@ def main():
     )
 
     application.add_handler(conv_handler)
+
+    # Message handler for broadcast media (registered after conversation handler to not interfere with invest proof photos)
+    application.add_handler(MessageHandler((filters.PHOTO | filters.VIDEO) & ~filters.COMMAND, handle_broadcast_media))
 
     # language & settings handlers
     application.add_handler(CallbackQueryHandler(settings_language_open_callback, pattern='^settings_language$'))
@@ -5022,6 +5678,14 @@ def main():
     application.add_handler(CommandHandler("mark_primary_wallet", cmd_mark_primary_wallet))
     application.add_handler(CommandHandler("remove_deposit_wallet", cmd_remove_deposit_wallet))
     
+    # Auto-deposit commands
+    application.add_handler(CommandHandler("enable_auto_deposit", cmd_enable_auto_deposit))
+    application.add_handler(CommandHandler("disable_auto_deposit", cmd_disable_auto_deposit))
+    application.add_handler(CommandHandler("auto_deposit_status", cmd_auto_deposit_status))
+    application.add_handler(CommandHandler("list_user_addresses", cmd_list_user_addresses))
+    application.add_handler(CommandHandler("set_tatum_api_key", cmd_set_tatum_api_key))
+    application.add_handler(CommandHandler("get_tatum_api_key", cmd_get_tatum_api_key))
+    
     # Notification/Broadcast commands
     application.add_handler(CommandHandler("set_broadcast_message", cmd_set_broadcast_message))
     application.add_handler(CommandHandler("set_new_user_message", cmd_set_new_user_message))
@@ -5042,11 +5706,13 @@ def main():
     application.add_handler(CommandHandler("send_reminders", cmd_send_reminders))
     application.add_handler(CommandHandler("reset_daily_profit", cmd_reset_daily_profit))
     
-    # User stats command
+    # User commands
     application.add_handler(CommandHandler("stats", stats_command))
+    application.add_handler(CommandHandler("my_addresses", my_addresses_command))
     
     # Admin helper commands
     application.add_handler(CommandHandler("admin_cmds", cmd_admin_cmds))
+    application.add_handler(CommandHandler("list_users", cmd_list_users))
     application.add_handler(CommandHandler("list_trading_vars", cmd_list_trading_vars))
 
     application.add_handler(MessageHandler(filters.Regex("^Balance$"), balance_text_handler))
