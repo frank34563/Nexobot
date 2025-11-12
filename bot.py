@@ -1473,7 +1473,12 @@ def is_probable_wallet(address: str) -> bool:
 # -----------------------
 def tx_card_text(tx: Transaction, username: Optional[str] = None) -> str:
     emoji = "📥" if (tx.type == 'invest') else ("💸" if tx.type == 'withdraw' else ("🤖" if tx.type == 'trade' else "💰"))
-    created = tx.created_at.strftime("%Y-%m-%d %H:%M:%S") if tx.created_at else "-"
+    # Convert UTC created_at to NY time for display
+    if tx.created_at:
+        created_ny = utc_to_ny(tx.created_at)
+        created = created_ny.strftime("%Y-%m-%d %H:%M:%S (NY)")
+    else:
+        created = "-"
     user_line = f"User: <code>{tx.user_id}</code>"
     if username:
         user_line += f" (@{username})"
@@ -1779,7 +1784,7 @@ async def trading_job():
                 
                 profit_percent = round((profit / bal) * 100, 2)
                 display_balance = format_price(new_balance, decimals=2)
-                date_str = now.strftime("%d.%m.%Y %H:%M")
+                date_str = now_ny.strftime("%d.%m.%Y %H:%M")
                 
                 # Format pair for display (BTCUSDT -> USDT → BTC → USDT)
                 if pair.endswith('USDT'):
@@ -2490,9 +2495,9 @@ async def invest_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
                 created_at=datetime.utcnow()
             )
 
-        now = datetime.utcnow()
-        pdt_str = (now.replace(tzinfo=timezone.utc) - timedelta(hours=7)).strftime("%Y-%m-%d %H:%M (PDT)")
-        deposit_request_text = t(lang, "invest_request_success", ref=tx_ref, amount=amount, network=network, wallet=wallet, date=pdt_str)
+        now_ny = get_ny_time()
+        ny_str = now_ny.strftime("%Y-%m-%d %H:%M (NY)")
+        deposit_request_text = t(lang, "invest_request_success", ref=tx_ref, amount=amount, network=network, wallet=wallet, date=ny_str)
 
         try:
             if query:
@@ -2671,9 +2676,9 @@ async def withdraw_confirm_callback(update: Update, context: ContextTypes.DEFAUL
             created_at=datetime.utcnow()
         )
 
-    now = datetime.utcnow()
-    pdt_str = (now.replace(tzinfo=timezone.utc) - timedelta(hours=7)).strftime("%Y-%m-%d %H:%M (PDT)")
-    withdraw_request_text = t(lang, "withdraw_request_success", ref=tx_ref, amount=amount, network=network or 'N/A', wallet=wallet, date=pdt_str)
+    now_ny = get_ny_time()
+    ny_str = now_ny.strftime("%Y-%m-%d %H:%M (NY)")
+    withdraw_request_text = t(lang, "withdraw_request_success", ref=tx_ref, amount=amount, network=network or 'N/A', wallet=wallet, date=ny_str)
 
     try:
         await query.message.reply_text(withdraw_request_text, parse_mode="HTML")
@@ -2814,12 +2819,13 @@ async def admin_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                             except Exception:
                                 logger.exception("Failed to notify referrer")
 
+                    now_ny = get_ny_time()
                     receipt_text = (
                         "  **Deposit Receipt **\n"
                         "✅ Your deposit has been approved and credited\n"
                         f"Transaction ID, D-{tx.ref}\n"
                         f"Amount, {float(tx.amount):.2f} USDT\n"
-                        f"Date, {(datetime.utcnow().replace(tzinfo=timezone.utc) - timedelta(hours=7)).strftime('%Y-%m-%d %H:%M (PDT)')}\n"
+                        f"Date, {now_ny.strftime('%Y-%m-%d %H:%M (NY)')}\n"
                         f"New balance: ${new_balance:.2f}"
                     )
                     try:
@@ -2836,12 +2842,13 @@ async def admin_confirm_callback(update: Update, context: ContextTypes.DEFAULT_T
                     await session.execute(sa_update(Transaction).where(Transaction.id == tx_db_id).values(status='completed'))
                     await session.commit()
 
+                    now_ny = get_ny_time()
                     receipt_text = (
                         "  **Withdrawal Receipt **\n"
                         "✅ Your withdrawal has been approved and processed\n"
                         f"Transaction ID, W-{tx.ref}\n"
                         f"Amount, {float(tx.amount):.2f} USDT\n"
-                        f"Date, {(datetime.utcnow().replace(tzinfo=timezone.utc) - timedelta(hours=7)).strftime('%Y-%m-%d %H:%M (PDT)')}\n"
+                        f"Date, {now_ny.strftime('%Y-%m-%d %H:%M (NY)')}\n"
                         f"Wallet: {tx.wallet}\n"
                         f"Network: {tx.network}\n"
                         "If you don't see the funds in your wallet within a few minutes, please contact support."
@@ -4150,7 +4157,12 @@ async def cmd_error_logs(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         lines = ["🔴 <b>Recent Errors (Last 10)</b>\n"]
         for err in errors:
-            time_str = err.created_at.strftime("%Y-%m-%d %H:%M:%S")
+            # Convert UTC created_at to NY time for display
+            if err.created_at:
+                created_ny = utc_to_ny(err.created_at)
+                time_str = created_ny.strftime("%Y-%m-%d %H:%M:%S (NY)")
+            else:
+                time_str = "Unknown"
             user_info = f"User: {err.user_id}" if err.user_id else "System"
             cmd_info = f"Cmd: {err.command}" if err.command else ""
             lines.append(
@@ -4670,10 +4682,16 @@ async def cmd_list_user_addresses(update: Update, context: ContextTypes.DEFAULT_
         
         text = f"💳 <b>Deposit Addresses for User {target_user_id}:</b>\n\n"
         for addr in addresses:
+            # Convert UTC created_at to NY time for display
+            if addr['created_at']:
+                created_ny = utc_to_ny(addr['created_at'])
+                created_str = created_ny.strftime('%Y-%m-%d %H:%M (NY)')
+            else:
+                created_str = "Unknown"
             text += (
                 f"<b>{addr['coin']} ({addr['network']})</b>\n"
                 f"Address: <code>{addr['address']}</code>\n"
-                f"Created: {addr['created_at'].strftime('%Y-%m-%d %H:%M')}\n\n"
+                f"Created: {created_str}\n\n"
             )
         
         await update.effective_message.reply_text(text, parse_mode="HTML")
@@ -4893,10 +4911,11 @@ async def cmd_list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except Exception:
                     username = "Unknown"
                 
-                # Format join date
+                # Format join date - convert UTC to NY time
                 join_date = "N/A"
                 if user.joined_at:
-                    join_date = user.joined_at.strftime("%Y-%m-%d %H:%M")
+                    joined_ny = utc_to_ny(user.joined_at)
+                    join_date = joined_ny.strftime("%Y-%m-%d %H:%M (NY)")
                 
                 # Get balance
                 balance = float(user.balance or 0)
@@ -5138,7 +5157,12 @@ async def admin_pending_command(update: Update, context: ContextTypes.DEFAULT_TY
             logger.exception("Failed to send pending tx %s to admin", tx.id)
 
 def history_list_item_text(tx: Transaction) -> str:
-    created = tx.created_at.strftime("%Y-%m-%d") if tx.created_at else "-"
+    # Convert UTC created_at to NY time for display
+    if tx.created_at:
+        created_ny = utc_to_ny(tx.created_at)
+        created = created_ny.strftime("%Y-%m-%d")
+    else:
+        created = "-"
     ttype_raw = (tx.type or "").lower()
     if ttype_raw.startswith("with"):
         ttype = "WITHDRAW"
@@ -5170,7 +5194,12 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         lines = []
         for tx in txs:
-            created = tx.created_at.strftime("%Y-%m-%d %H:%M:%S") if tx.created_at else ""
+            # Convert UTC created_at to NY time for display
+            if tx.created_at:
+                created_ny = utc_to_ny(tx.created_at)
+                created = created_ny.strftime("%Y-%m-%d %H:%M:%S (NY)")
+            else:
+                created = ""
             lines.append(f"DB:{tx.id} Ref:{tx.ref} {tx.type.upper()} {float(tx.amount):.6f}$ {tx.status} {created}")
         for i in range(0, len(lines), 50):
             await ef_msg.reply_text("\n".join(lines[i:i+50]))
@@ -5249,7 +5278,12 @@ async def history_details_callback(update: Update, context: ContextTypes.DEFAULT
         await query.message.reply_text("Transaction not found.")
         return
 
-    created = tx.created_at.strftime("%Y-%m-%d %H:%M:%S") if tx.created_at else ""
+    # Convert UTC created_at to NY time for display
+    if tx.created_at:
+        created_ny = utc_to_ny(tx.created_at)
+        created = created_ny.strftime("%Y-%m-%d %H:%M:%S (NY)")
+    else:
+        created = ""
     amount = f"{float(tx.amount):.6f}$" if tx.amount is not None else ""
     tx_type = (tx.type or "").upper()
     status = (tx.status or "").upper()
@@ -5605,10 +5639,16 @@ async def my_addresses_command(update: Update, context: ContextTypes.DEFAULT_TYP
         text += "These addresses are exclusively for your deposits:\n\n"
         
         for addr in addresses:
+            # Convert UTC created_at to NY time for display
+            if addr['created_at']:
+                created_ny = utc_to_ny(addr['created_at'])
+                created_str = created_ny.strftime('%Y-%m-%d')
+            else:
+                created_str = "Unknown"
             text += (
                 f"<b>{addr['coin']} ({addr['network']})</b>\n"
                 f"<code>{addr['address']}</code>\n"
-                f"Created: {addr['created_at'].strftime('%Y-%m-%d')}\n\n"
+                f"Created: {created_str}\n\n"
             )
         
         text += (
