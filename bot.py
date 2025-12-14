@@ -429,6 +429,25 @@ async def get_primary_deposit_wallet(session: AsyncSession, coin: str) -> Option
         }
     return None
 
+def normalize_coin_network(coin: str, network: str = None) -> tuple:
+    """Normalize coin and network names for consistency (e.g., SOLANA -> SOL)"""
+    coin_normalized = "SOL" if coin == "SOLANA" else coin
+    network_normalized = "SOL" if network == "SOLANA" else network if network else coin_normalized
+    return coin_normalized, network_normalized
+
+def find_best_matching_wallet(wallets: List[Dict], network: str) -> Optional[Dict]:
+    """Find the best matching wallet from a list, preferring those that match the network and are primary"""
+    matching_wallet = None
+    
+    for wallet in wallets:
+        if wallet['network'] == network:
+            if wallet['is_primary']:
+                return wallet  # Return immediately if we find a primary match
+            elif matching_wallet is None:
+                matching_wallet = wallet
+    
+    return matching_wallet
+
 async def set_deposit_wallet(session: AsyncSession, coin: str, network: str, address: str, is_primary: bool = False):
     """Add or update a deposit wallet"""
     coin = coin.upper()
@@ -2203,12 +2222,49 @@ async def invest_amount_received(update: Update, context: ContextTypes.DEFAULT_T
     amount = round(amount, 2)
     context.user_data['invest_amount'] = amount
     
-    # Show network selection keyboard
-    keyboard = [
-        [InlineKeyboardButton("💵 USDT (TRC20)", callback_data="invest_network_USDT")],
-        [InlineKeyboardButton("₿ Bitcoin (BTC)", callback_data="invest_network_BTC")],
-        [InlineKeyboardButton("◎ Solana (SOL)", callback_data="invest_network_SOLANA")],
-    ]
+    # Build network selection keyboard dynamically from configured deposit wallets
+    async with async_session() as session:
+        wallets = await get_deposit_wallets(session)
+    
+    # Create a set to track unique (coin, network) combinations
+    seen_combinations = set()
+    keyboard = []
+    
+    # Define emoji mapping for common coins
+    coin_emoji = {
+        'USDT': '💵',
+        'BTC': '₿',
+        'SOL': '◎',
+        'SOLANA': '◎',
+        'ETH': 'Ξ',
+    }
+    
+    for wallet in wallets:
+        coin = wallet['coin']
+        network = wallet['network']
+        key = f"{coin}_{network}"
+        
+        # Skip if we've already added a button for this coin/network combination
+        if key in seen_combinations:
+            continue
+        
+        seen_combinations.add(key)
+        
+        # Build button label with emoji if available
+        emoji = coin_emoji.get(coin, '🪙')
+        label = f"{emoji} {coin} ({network})"
+        callback_data = f"invest_network_{coin}_{network}"
+        
+        keyboard.append([InlineKeyboardButton(label, callback_data=callback_data)])
+    
+    # If no wallets are configured, show error message
+    if not keyboard:
+        await msg.reply_text(
+            "❌ No deposit wallets are currently configured.\n"
+            "Please contact the administrator."
+        )
+        return ConversationHandler.END
+    
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     network_msg = f"💰 Amount: {amount:.2f}$\n\nPlease select the network you want to use for deposit:"
@@ -2230,36 +2286,62 @@ async def invest_network_selected(update: Update, context: ContextTypes.DEFAULT_
             await query.message.reply_text(t(lang, "invest_no_amount"))
             return ConversationHandler.END
         
-        # Extract selected coin from callback data (e.g., "invest_network_USDT" -> "USDT")
-        coin = query.data.replace("invest_network_", "")
-        context.user_data['invest_coin'] = coin
+        # Extract selected coin and network from callback data
+        # Format: "invest_network_COIN_NETWORK" -> extract COIN and NETWORK
+        callback_parts = query.data.replace("invest_network_", "").split("_", 1)
         
-        # Map SOLANA to SOL for consistency
-        coin_lookup = coin if coin != "SOLANA" else "SOL"
+        if len(callback_parts) == 2:
+            # New format: invest_network_USDT_TRC20
+            coin = callback_parts[0]
+            network = callback_parts[1]
+        else:
+            # Legacy format for backward compatibility: invest_network_USDT
+            # Try to infer network from coin
+            coin = callback_parts[0]
+            if coin == "USDT":
+                network = "TRC20"
+            elif coin == "BTC":
+                network = "BTC"
+            elif coin == "SOLANA":
+                network = "SOL"
+            else:
+                network = coin  # Use coin as network if unknown
+        
+        context.user_data['invest_coin'] = coin
+        context.user_data['invest_network'] = network
+        
+        # Normalize SOLANA to SOL for consistency
+        coin_lookup, network_lookup = normalize_coin_network(coin, network)
         
         # Check if auto-deposit is enabled
         async with async_session() as session:
             if AUTO_DEPOSIT_ENABLED:
                 # Get or create unique deposit address for this user
-                user_address = await get_or_create_user_deposit_address(session, user_id, coin_lookup, coin_lookup)
+                user_address = await get_or_create_user_deposit_address(session, user_id, coin_lookup, network_lookup)
                 wallet = user_address['address']
-                network = user_address['network']
+                network_actual = user_address['network']
                 is_auto_deposit = True
             else:
                 # Use traditional shared wallet approach
-                deposit_wallet = await get_primary_deposit_wallet(session, coin_lookup)
+                # First try to find a wallet matching both coin and network
+                wallets = await get_deposit_wallets(session, coin_lookup)
+                deposit_wallet = find_best_matching_wallet(wallets, network_lookup)
+                
+                # If no exact match, fall back to primary wallet for the coin
+                if not deposit_wallet:
+                    deposit_wallet = await get_primary_deposit_wallet(session, coin_lookup)
                 
                 # Fall back to MASTER_WALLET if no wallet configured (only for USDT)
                 if deposit_wallet:
                     wallet = deposit_wallet['address']
-                    network = deposit_wallet['network']
+                    network_actual = deposit_wallet['network']
                 else:
                     if coin == "USDT":
                         wallet = MASTER_WALLET
-                        network = MASTER_NETWORK
+                        network_actual = MASTER_NETWORK
                     else:
                         await query.message.reply_text(
-                            f"❌ No deposit wallet configured for {coin}.\n"
+                            f"❌ No deposit wallet configured for {coin} ({network}).\n"
                             f"Please contact admin or choose a different network.",
                             reply_markup=InlineKeyboardMarkup([[
                                 InlineKeyboardButton("« Back to network selection", callback_data="invest_back_to_network")
@@ -2268,13 +2350,8 @@ async def invest_network_selected(update: Update, context: ContextTypes.DEFAULT_
                         return INVEST_NETWORK
                 is_auto_deposit = False
         
-        # Display network name based on coin
-        network_display_name = {
-            "USDT": "USDT (TRC20)",
-            "BTC": "Bitcoin (BTC)",
-            "SOLANA": "Solana (SOL)",
-            "SOL": "Solana (SOL)"
-        }.get(coin, coin)
+        # Build display name for the network
+        network_display_name = f"{coin} ({network_actual})"
         
         # Different message for auto-deposit vs manual
         if is_auto_deposit:
@@ -2282,7 +2359,7 @@ async def invest_network_selected(update: Update, context: ContextTypes.DEFAULT_
                 f"📥 Deposit {amount:.2f}$ using {network_display_name}\n\n"
                 f"✨ <b>Your Unique Deposit Address:</b>\n"
                 f"<code>{wallet}</code>\n\n"
-                f"Network: <b>{network}</b>\n\n"
+                f"Network: <b>{network_actual}</b>\n\n"
                 f"🔄 <b>Auto-Confirmation Enabled!</b>\n"
                 f"Your deposit will be automatically confirmed and credited once the transaction is detected on the blockchain.\n\n"
                 f"After sending, provide the transaction hash (txid) for faster processing."
@@ -2292,7 +2369,7 @@ async def invest_network_selected(update: Update, context: ContextTypes.DEFAULT_
                 f"📥 Deposit {amount:.2f}$ using {network_display_name}\n\n"
                 f"Send to wallet:\n"
                 f"Wallet: <code>{wallet}</code>\n"
-                f"Network: <b>{network}</b>\n\n"
+                f"Network: <b>{network_actual}</b>\n\n"
                 f"After sending, upload a screenshot OR send the transaction hash (txid)."
             )
         
@@ -2303,7 +2380,7 @@ async def invest_network_selected(update: Update, context: ContextTypes.DEFAULT_
         
         # Store wallet, network, and auto-deposit flag in user_data for later use
         context.user_data['invest_wallet'] = wallet
-        context.user_data['invest_network'] = network
+        context.user_data['invest_network'] = network_actual
         context.user_data['is_auto_deposit'] = is_auto_deposit
         
         return INVEST_PROOF
